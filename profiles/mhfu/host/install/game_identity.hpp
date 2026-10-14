@@ -21,3 +21,13 @@ inline constexpr const char *kExecutableSha256 =
     "3070954e2dc88fd0b0836c0c1dc526531aca4a213b0f18806e324963efb514f4";
 
 } // namespace mhfu::install
+
+namespace mhp3rd::install {
+using mhfu::install::kDiscId;
+using mhfu::install::kDiscIdDisplay;
+using mhfu::install::kGameTitle;
+using mhfu::install::kExecutablePathOnDisc;
+using mhfu::install::kParamSfoPathOnDisc;
+using mhfu::install::kEncryptedExecutableSha256;
+using mhfu::install::kExecutableSha256;
+}

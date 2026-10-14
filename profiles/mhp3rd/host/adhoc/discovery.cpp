@@ -15,6 +15,7 @@
 
 #if defined(_WIN32)
 #include <iphlpapi.h>
+#undef interface
 #else
 #include <arpa/inet.h>
 #include <ifaddrs.h>

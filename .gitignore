@@ -46,6 +46,7 @@ overlay_*.bin
 # The AOT corpora are derived from the user's executable
 /profiles/*/generated/
 /profiles/*/overlays/
+/profiles/*/extracted_overlays/
 
 # Local dumps next to the repository root
 /dump/

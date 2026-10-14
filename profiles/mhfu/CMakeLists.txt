@@ -48,6 +48,17 @@ add_custom_target(mhfu_version
     BYPRODUCTS "${MHFU_VERSION_HEADER}"
     COMMENT "Checking build version")
 
+# Generated hooks stubs
+set(MHFU_HUD_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_hooks/hud_functions.inc")
+set(MHFU_LAYERED_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_hooks/layered_armor_functions.inc")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_hooks")
+if(NOT EXISTS "${MHFU_HUD_INC}")
+    file(WRITE "${MHFU_HUD_INC}" "// MHFU: HUD function hooks stub\n")
+endif()
+if(NOT EXISTS "${MHFU_LAYERED_INC}")
+    file(WRITE "${MHFU_LAYERED_INC}" "// MHFU: Layered armor function hooks stub\n")
+endif()
+
 # Shaders
 find_program(MHFU_GLSLANG NAMES glslangValidator glslang)
 if(MHFU_GLSLANG)
@@ -84,7 +95,14 @@ set(MHFU_HOST_SOURCES
     host/mhfu_profile.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/app_paths.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/utf8_path.cpp
-    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/overlays.cpp
+    ${MHFU_PROFILE_DIR}/host/overlays.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/camera_probe.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/camera/camera_input.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/camera/game_aspect.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/camera/game_camera.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/camera/lock_on.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/camera/free_camera.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/game_hud.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/kernel/kernel.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/kernel/load_trace.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/kernel/fast_loading.cpp
@@ -123,14 +141,32 @@ set(MHFU_HOST_SOURCES
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/screenshot.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/texture_pack.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/texture_pack_import.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/device_report.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/input/bindings.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/input/chords.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/input/presets.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/input/gamepad_mapping.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/input/gamepad_devices.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/input/touch_action.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/input/touch_controls.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/perf/frame_stats.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/perf/perf_overlay.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/settings/settings.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/text/language.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/text/translation.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/file_overlay.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/mod_import.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/mod_ini.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/mod_library.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/mod_session.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/mhp3rd_data_bin.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/mhp3rd_mod_format.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/mods/mhp3rd_mods.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/game/guest_ram.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/game/game_data.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/game/equipment_models.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/game/layered_armor.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/game/layered_armor_hook.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/save_data/aes128.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/save_data/param_sfo.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/save_data/savedata_crypto.cpp
@@ -141,7 +177,34 @@ set(MHFU_HOST_SOURCES
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/adhoc/host.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/adhoc/server.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/install/user_data.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/install/executable_preparation.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/install/front_end.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/install/installer.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/install/installer_dialogs.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/bindings_editor.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/controllers_screen.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/file_browser.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/font_menu.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/input_script.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/layer.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/menu.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/layered_armor_screen.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/mods_screen.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/save_screen.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/setup_screens.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/text_input.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/touch_editor.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/touch_overlay.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/texture_pack_screen.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/translation_screen.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/ui/widgets.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/tiny_aes/aes.c
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/imgui/imgui.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/imgui/imgui_draw.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/imgui/imgui_tables.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/imgui/imgui_widgets.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/imgui/backends/imgui_impl_sdl3.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/imgui/backends/imgui_impl_vulkan.cpp
 )
 set_source_files_properties(${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/tiny_aes/aes.c PROPERTIES LANGUAGE CXX)
 
@@ -158,13 +221,16 @@ endif()
 mhp3rd_use_ffmpeg(MHFU)
 
 target_include_directories(MHFU PRIVATE
+    "${MHFU_PROFILE_DIR}/host"
     "${PROJECT_SOURCE_DIR}/include"
     "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host"
-    "${MHFU_PROFILE_DIR}/host"
+    "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party"
+    "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/imgui"
     "${MHFU_PROFILE_DIR}/generated"
     "${CMAKE_CURRENT_BINARY_DIR}/generated_nids"
     "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
     "${CMAKE_CURRENT_BINARY_DIR}/generated_version"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated_hooks"
 )
 
 target_compile_definitions(MHFU PRIVATE
@@ -181,9 +247,73 @@ target_link_libraries(MHFU PRIVATE
 
 if(WIN32)
     target_link_libraries(MHFU PRIVATE ws2_32 iphlpapi)
+    if(MINGW)
+        target_link_options(MHFU PRIVATE "-Wl,--out-implib,${CMAKE_CURRENT_BINARY_DIR}/libMHFU.dll.a" "-Wl,--export-all-symbols")
+    endif()
 endif()
 
 set_target_properties(MHFU PROPERTIES
+    ENABLE_EXPORTS TRUE
+    WINDOWS_EXPORT_ALL_SYMBOLS TRUE
     OUTPUT_NAME MHFU
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+
+set(MHFU_OVERLAY_DIR "${CMAKE_BINARY_DIR}/bin/overlays")
+
+function(mhfu_add_overlay meta_path)
+    get_filename_component(source_dir "${meta_path}" DIRECTORY)
+    get_filename_component(MHP3RD_OVERLAY_PREFIX "${source_dir}" NAME)
+    file(STRINGS "${meta_path}" meta_lines REGEX "^(base|size|code_size|hash|name)=")
+    foreach(line IN LISTS meta_lines)
+        string(REGEX MATCH "^([a-z_]+)=(.+)$" matched "${line}")
+        if(NOT matched)
+            continue()
+        endif()
+        string(TOUPPER "${CMAKE_MATCH_1}" key)
+        set(MHP3RD_OVERLAY_${key} "${CMAKE_MATCH_2}")
+    endforeach()
+    if(NOT MHP3RD_OVERLAY_BASE OR NOT MHP3RD_OVERLAY_SIZE OR NOT MHP3RD_OVERLAY_CODE_SIZE
+       OR NOT MHP3RD_OVERLAY_HASH OR NOT MHP3RD_OVERLAY_NAME)
+        message(WARNING "mhfu: incomplete overlay metadata in ${meta_path}")
+        return()
+    endif()
+
+    file(GLOB sources CONFIGURE_DEPENDS "${source_dir}/*.cpp")
+    if(NOT sources)
+        message(WARNING "mhfu: no sources for overlay ${MHP3RD_OVERLAY_PREFIX}")
+        return()
+    endif()
+    set(entry_point "${CMAKE_CURRENT_BINARY_DIR}/overlays/${MHP3RD_OVERLAY_PREFIX}_module.cpp")
+    configure_file("${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/overlay_module.cpp.in" "${entry_point}" @ONLY)
+
+    set(target "overlay_${MHP3RD_OVERLAY_PREFIX}")
+    add_library(${target} MODULE ${sources} "${entry_point}")
+    target_include_directories(${target} PRIVATE
+        "${source_dir}"
+        "${MHFU_PROFILE_DIR}/host"
+        "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host"
+        "${PROJECT_SOURCE_DIR}/include")
+    if(WIN32)
+        target_link_libraries(${target} PRIVATE MHFU)
+    else()
+        add_dependencies(${target} MHFU)
+    endif()
+    target_compile_options(${target} PRIVATE -O${PSPRECOMP_GENERATED_OPT_LEVEL} -g0)
+    set_target_properties(${target} PROPERTIES
+        JOB_POOL_COMPILE psprecomp_generated
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+        PREFIX ""
+        SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}"
+        OUTPUT_NAME "${MHP3RD_OVERLAY_PREFIX}"
+        LIBRARY_OUTPUT_DIRECTORY "${MHFU_OVERLAY_DIR}")
+endfunction()
+
+file(GLOB MHFU_OVERLAY_METADATA CONFIGURE_DEPENDS "${MHFU_PROFILE_DIR}/overlays/*/meta.txt")
+foreach(meta IN LISTS MHFU_OVERLAY_METADATA)
+    mhfu_add_overlay("${meta}")
+endforeach()
+list(LENGTH MHFU_OVERLAY_METADATA MHFU_OVERLAY_COUNT)
+message(STATUS "mhfu: ${MHFU_OVERLAY_COUNT} overlay librar(ies) in ${MHFU_OVERLAY_DIR}")
+
