@@ -1,0 +1,35 @@
+[game]
+name = "Monster Hunter Freedom Unite"
+disc_id = "ULUS-10391"
+psp_disc_id = "ULUS10391"
+save_id = "ULUS10391"
+region = "NTSC-U"
+module = "MonsterHunterPortable2ndG"
+module_version = "1.1"
+# Standard 64 MiB user RAM runtime for high stability
+ram_mb = 64
+load_base = "0x08804000"
+entry = "0x08906A54"
+gp = "0x089D3BA0"
+
+[input]
+# Encrypted PSP_GAME/SYSDIR/EBOOT.BIN from the user's legally acquired disc image.
+encrypted_eboot_sha256 = "3354adb3ee40821f230c4055b9bf7cc5d4c864e42abb74ce8ac022933f9697a7"
+# Decrypted ELF expected by this profile (BOOT.BIN / BOOT.ELF).
+expected_sha256 = "3070954e2dc88fd0b0836c0c1dc526531aca4a213b0f18806e324963efb514f4"
+executable = "game/BOOT.ELF"
+game_root = "game/PSP_GAME/USRDIR"
+
+[output]
+analysis_dir = "analysis"
+generated_dir = "generated"
+
+[overlays]
+# Code overlays are loaded at runtime from USRDIR/DATA.BIN into fixed memory slots.
+# In Monster Hunter Freedom Unite (ULUS-10391), 298 dynamic code overlays share 4 fixed slots:
+slots = [
+  "0x09A5F300", # *_task mode overlays: game, lobby, edit, demo, option, etc. (12)
+  "0x09C19100", # demo_sub, game_sub task sub-routines (2)
+  "0x09D1A280", # em* monster AI and combat overlays (17)
+  "0x09D63100", # stage* stage and quest overlays: stage000..stage266 (267)
+]
