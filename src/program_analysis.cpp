@@ -35,6 +35,20 @@ std::vector<ExecutableRange> executable_ranges_for(const Elf32Image &elf, std::u
         }
         if (loaded) ranges.push_back({start, static_cast<std::uint32_t>(end64)});
     }
+    // Capcom sound driver functions residing in the .data section of MHFU
+    // (0x089B93D8 to 0x089BAB70). If present inside a loaded segment, include them
+    // so they are recompiled AOT rather than falling back to the interpreter.
+    constexpr std::uint32_t kCapcomSoundStart = 0x089B93D8u;
+    constexpr std::uint32_t kCapcomSoundEnd = 0x089BAB70u;
+    for (std::size_t i = 0; i < elf.segments().size(); ++i) {
+        const auto &segment = elf.segments()[i];
+        if (segment.type != 1u || segment.file_size == 0u) continue;
+        const std::uint64_t segment_start = elf.segment_runtime_address(i, load_base);
+        if (kCapcomSoundStart >= segment_start && kCapcomSoundEnd <= segment_start + segment.file_size) {
+            ranges.push_back({kCapcomSoundStart, kCapcomSoundEnd});
+            break;
+        }
+    }
     if (!ranges.empty()) {
         std::sort(ranges.begin(), ranges.end(), [](const auto &a, const auto &b) { return a.start < b.start; });
         return ranges;
@@ -382,6 +396,11 @@ std::map<std::uint32_t, std::string> collect_initial_seeds(const Elf32Image &elf
     for (const auto &site : elf.relocation_sites(load_base)) {
         if (site.type != 2u || !memory.contains(site.patch_address, 4u)) continue;
         add_seed(seeds, ranges, memory.load32(site.patch_address), "relocated_r_mips32_code_pointer");
+    }
+    for (std::uint32_t addr : {0x089B93D8u, 0x089B9428u, 0x089B9444u, 0x089B9678u, 0x089B96B4u, 0x089BAAF8u, 0x089BAB34u}) {
+        if (is_executable_address(ranges, addr)) {
+            add_seed(seeds, ranges, addr, "capcom_sound_core");
+        }
     }
     return seeds;
 }

@@ -424,6 +424,38 @@ void store_picture(psprecomp::GuestMemory &memory, std::uint32_t buffer, const m
     module().ycbcr[buffer] = picture;
 }
 
+void store_picture_rgba(psprecomp::GuestMemory &memory, std::uint32_t buffer, const movie::Picture &picture,
+    std::uint32_t stride) {
+    if (stride == 0u) stride = 512u;
+    const std::uint32_t rows = picture.height;
+    const std::uint32_t columns = std::min(stride, picture.width);
+    const std::uint32_t chroma_width = (picture.width + 1u) / 2u;
+    std::vector<std::uint8_t> line(static_cast<std::size_t>(columns) * 4u);
+    for (std::uint32_t row = 0; row < rows; ++row) {
+        for (std::uint32_t column = 0; column < columns; ++column) {
+            int y = picture.y[static_cast<std::size_t>(row) * picture.width + column];
+            const std::size_t chroma = static_cast<std::size_t>(row / 2u) * chroma_width + column / 2u;
+            const int cb = picture.cb[chroma] - 128;
+            const int cr = picture.cr[chroma] - 128;
+            int scale = 1 << 16;
+            if (!picture.full_range) {
+                y -= 16;
+                scale = 76309; // 255/219
+            }
+            const int luma = y * scale;
+            const int red = (luma + 91881 * cr) >> 16;
+            const int green = (luma - 22554 * cb - 46802 * cr) >> 16;
+            const int blue = (luma + 116130 * cb) >> 16;
+            std::uint8_t *pixel = &line[static_cast<std::size_t>(column) * 4u];
+            pixel[0] = static_cast<std::uint8_t>(std::clamp(red, 0, 255));
+            pixel[1] = static_cast<std::uint8_t>(std::clamp(green, 0, 255));
+            pixel[2] = static_cast<std::uint8_t>(std::clamp(blue, 0, 255));
+            pixel[3] = 0xFFu;
+        }
+        memory.copy_in(buffer + row * stride * 4u, line);
+    }
+}
+
 void register_decoding(HleRegistrar &hle) {
     // sceMpegAvcQueryYCbCrSize(mpeg, mode, width, height, outSize)
     hle.add("sceMpeg", "sceMpegAvcQueryYCbCrSize", [](Runtime &rt, AllegrexContext &ctx) {
@@ -435,6 +467,49 @@ void register_decoding(HleRegistrar &hle) {
     // sceMpegAvcInitYCbCr(mpeg, mode, width, height, buffer)
     hle.add("sceMpeg", "sceMpegAvcInitYCbCr",
         [](Runtime &, AllegrexContext &ctx) { finish_traced(ctx, "sceMpegAvcInitYCbCr", 0u, {}, 5u); });
+    // sceMpegAvcDecode(mpeg, au, frameWidth, bufferAddr, outInit): decodes
+    // an AVC access unit directly into an RGBA frame buffer (used in MHFU).
+    hle.add("sceMpeg", "sceMpegAvcDecode", [](Runtime &rt, AllegrexContext &ctx) {
+        MpegState *state = find_mpeg(arg(ctx, 0));
+        if (state == nullptr) {
+            finish_traced(ctx, "sceMpegAvcDecode", mpeg_error::kInvalidValue);
+            return;
+        }
+        auto &memory = rt.memory();
+        bool produced = false;
+        if (state->video_unit) {
+            produced = state->video.decode(state->video_unit->data, state->picture);
+            state->video_unit.reset();
+        }
+        const std::uint32_t stride = arg(ctx, 2);
+        const std::uint32_t buffer_ptr = arg(ctx, 3);
+        const std::uint32_t init_ptr = arg(ctx, 4);
+        if (produced) {
+            ++state->pictures;
+            const std::uint32_t buffer = memory.load32(buffer_ptr);
+            store_picture_rgba(memory, buffer, state->picture, stride);
+        }
+        if (init_ptr != 0u) memory.store32(init_ptr, produced ? 1u : 0u);
+        finish_traced(
+            ctx, "sceMpegAvcDecode", 0u, produced ? "picture " + std::to_string(state->pictures) : "none", 5u);
+    });
+    // sceMpegAvcDecodeStop(mpeg, frameWidth, bufferAddr, outStatus): drains
+    // pictures held at the end of the stream into RGBA frame buffer.
+    hle.add("sceMpeg", "sceMpegAvcDecodeStop", [](Runtime &rt, AllegrexContext &ctx) {
+        MpegState *state = find_mpeg(arg(ctx, 0));
+        bool produced = false;
+        const std::uint32_t stride = arg(ctx, 1);
+        const std::uint32_t buffer_ptr = arg(ctx, 2);
+        const std::uint32_t status_ptr = arg(ctx, 3);
+        if (state != nullptr && state->video.drain(state->picture)) {
+            produced = true;
+            ++state->pictures;
+            const std::uint32_t buffer = rt.memory().load32(buffer_ptr);
+            store_picture_rgba(rt.memory(), buffer, state->picture, stride);
+        }
+        if (status_ptr != 0u) rt.memory().store32(status_ptr, produced ? 1u : 0u);
+        finish_traced(ctx, "sceMpegAvcDecodeStop", 0u, produced ? "picture " + std::to_string(state->pictures) : "none", 4u);
+    });
     // sceMpegAvcDecodeYCbCr(mpeg, au, bufferPointer, outInit): the picture
     // goes to the buffer `bufferPointer` points at.
     hle.add("sceMpeg", "sceMpegAvcDecodeYCbCr", [](Runtime &rt, AllegrexContext &ctx) {
@@ -585,8 +660,9 @@ void register_movie_skip(HleRegistrar &hle) {
              "sceMpegRingbufferDestruct", "sceMpegFreeAvcEsBuf"})
         hle.try_add("sceMpeg", name, succeed);
     for (const char *name :
-        {"sceMpegGetAvcAu", "sceMpegGetAtracAu", "sceMpegAvcDecode", "sceMpegAtracDecode", "sceMpegAvcDecodeYCbCr",
-            "sceMpegAvcDecodeStopYCbCr", "sceMpegAvcDecodeDetail", "sceMpegAvcConvertToYuv420"})
+        {"sceMpegGetAvcAu", "sceMpegGetAtracAu", "sceMpegAvcDecode", "sceMpegAvcDecodeStop", "sceMpegAtracDecode",
+            "sceMpegAvcDecodeYCbCr", "sceMpegAvcDecodeStopYCbCr", "sceMpegAvcDecodeDetail",
+            "sceMpegAvcConvertToYuv420"})
         hle.try_add("sceMpeg", name, no_data);
 }
 
