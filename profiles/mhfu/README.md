@@ -20,6 +20,7 @@ Basado y logrado gracias al proyecto **[Yakumo](https://github.com/TeamGDB/Yakum
 - **Menú de configuración en tiempo real:** Tecla **`F1`** o `Esc`
 - **Controles de cámara:** Joystick derecho emula la cruceta D-Pad para rotación suave en 360 grados sin claw grip.
 - **Tasa de fotogramas:** 30, 45, 60, 90, 120 FPS o Match Display con interpolación de sub-cuadros.
+- **Contador de FPS:** Tecla **`F3`** para activar o desactivar el contador de FPS en pantalla.
 
 ## Módulos de Modo (Overlays)
 

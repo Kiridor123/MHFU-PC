@@ -113,10 +113,10 @@ void draw_compact_overlay(std::uint32_t *pixels, const Summary &summary, bool vs
     std::fill(pixels, pixels + kOverlayWidth * kCompactOverlayHeight, kBackground);
     char line[48];
     if (summary.valid)
-        std::snprintf(line, sizeof(line), "FPS: %.1f SPD: %.0f%% VSYNC: %s", summary.fps, summary.speed * 100.0,
+        std::snprintf(line, sizeof(line), "FPS: %.1f  SPD: %.0f%%  VSYNC: %s", summary.fps, summary.speed * 100.0,
             vsync ? "ON" : "OFF");
     else
-        std::snprintf(line, sizeof(line), "FPS: -- SPD: --%% VSYNC: %s", vsync ? "ON" : "OFF");
+        std::snprintf(line, sizeof(line), "FPS: --  SPD: --%%  VSYNC: %s", vsync ? "ON" : "OFF");
     draw_text(pixels, kMargin, kMargin, line);
 }
 

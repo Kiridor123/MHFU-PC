@@ -537,15 +537,31 @@ void Menu::video() {
         settings::save();
     }
     {
-        static const char *const kPerf[] = {
-            "Off", "Overlay", "Overlay and Log", "Log Only", "Compact", "Compact and Log"};
-        const int current = static_cast<int>(s.perf);
-        if (const int delta = choice_row("Performance Overlay", kPerf[current],
+        struct PerfChoice {
+            settings::PerfDisplay mode;
+            const char *label;
+        };
+        static const PerfChoice kPerfChoices[] = {
+            {settings::PerfDisplay::Off, "Off"},
+            {settings::PerfDisplay::Compact, "On (Compact)"},
+            {settings::PerfDisplay::CompactAndLog, "On + Console Log"},
+            {settings::PerfDisplay::Overlay, "Detailed Graph"},
+            {settings::PerfDisplay::OverlayAndLog, "Detailed + Console Log"},
+            {settings::PerfDisplay::Log, "Console Log Only"},
+        };
+        int current = 0;
+        for (std::size_t i = 0; i < std::size(kPerfChoices); ++i) {
+            if (kPerfChoices[i].mode == s.perf) {
+                current = static_cast<int>(i);
+                break;
+            }
+        }
+        if (const int delta = choice_row("FPS Counter", kPerfChoices[current].label,
                 options_for("video.performance",
-                    "Overlay shows frame times and speed in the top-left corner. Compact shows FPS, speed and "
-                    "Vsync in the bottom-left corner. Log modes print a [perf] line per second on the console. "
-                    "F3 shows or hides the selected overlay."))) {
-            s.perf = static_cast<settings::PerfDisplay>(cycle(current, delta, static_cast<int>(std::size(kPerf))));
+                    "Shows real-time FPS, game speed and Vsync in the corner. Press F3 anytime during "
+                    "gameplay to quickly toggle the FPS counter on or off."))) {
+            const int next = cycle(current, delta, static_cast<int>(std::size(kPerfChoices)));
+            s.perf = kPerfChoices[next].mode;
             renderer().set_perf_overlay(perf::options().overlay);
             settings::save();
         }

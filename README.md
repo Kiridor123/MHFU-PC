@@ -57,6 +57,9 @@ Queremos expresar nuestro más sincero agradecimiento y crédito a todos los con
 - **Tasa de Cuadros a 60 y 120 FPS (Sin acelerar el juego)**:
   - Soporte de interpolación de fotogramas a **30, 45, 60, 90, 120 FPS** o sincronizado a la tasa de refresco de tu monitor (*Match display*).
   - La lógica y física de la simulación de caza se mantienen exactamente a 30 FPS originales, logrando una fluidez visual moderna sin alterar la velocidad del juego.
+- **Contador de FPS en Pantalla (Tecla `F3`)**:
+  - Muestra en tiempo real los FPS exactos (`FPS: 60.0`, `FPS: 120.0`), velocidad de emulación (`SPD: 100%`) y estado de VSync en la esquina de la pantalla.
+  - Actívalo o desactívalo al instante presionando **`F3`** en cualquier momento, o configúralo desde el menú de opciones (**`F1`**).
 - **Soporte Moderno de Mandos y Doble Joystick (Cámara Analógica)**:
   - Detección automática de mandos de Xbox, PlayStation (DualShock / DualSense), Nintendo Switch Pro y genéricos.
   - **Control de cámara con el joystick derecho**: Permite girar e inclinar la vista del cazador de forma fluida y natural sin necesidad de usar "la garra" de PSP.

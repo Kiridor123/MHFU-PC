@@ -5734,8 +5734,16 @@ bool VulkanRenderer::pump_events() {
             event.wheel.which != SDL_TOUCH_MOUSEID && event.wheel.y != 0.0f)
             impl_->free_controls.speed_steps += event.wheel.y > 0.0f ? 1 : -1;
         if (impl_->event_hook && impl_->event_hook(event)) continue;
-        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F3 && !event.key.repeat && impl_->overlay_ready)
-            impl_->overlay_visible = !impl_->overlay_visible;
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F3 && !event.key.repeat && impl_->overlay_ready) {
+            if (settings::current().perf == settings::PerfDisplay::Off) {
+                settings::current().perf = settings::PerfDisplay::Compact;
+                impl_->overlay_visible = true;
+            } else {
+                settings::current().perf = settings::PerfDisplay::Off;
+                impl_->overlay_visible = false;
+            }
+            settings::save();
+        }
     }
     // Only sample while the window has focus: a key still down when focus is
     // lost stays down in SDL's snapshot, which the guest sees as a held
