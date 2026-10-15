@@ -8,6 +8,7 @@ namespace mhp3rd::install {
 inline constexpr const char *kDiscId = "NPJB40001";
 inline constexpr const char *kDiscIdDisplay = "NPJB-40001";
 inline constexpr const char *kGameTitle = "Monster Hunter Portable 3rd HD Ver.";
+inline constexpr const char *kProjectName = "Yakumo";
 
 inline constexpr const char *kExecutablePathOnDisc = "PSP_GAME/SYSDIR/EBOOT.BIN";
 inline constexpr const char *kParamSfoPathOnDisc = "PSP_GAME/PARAM.SFO";

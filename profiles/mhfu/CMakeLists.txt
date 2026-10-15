@@ -218,6 +218,8 @@ if(MHFU_GLSLANG)
     add_dependencies(MHFU mhfu_shaders)
 endif()
 
+add_custom_target(Pokke DEPENDS MHFU)
+
 mhp3rd_use_ffmpeg(MHFU)
 
 target_include_directories(MHFU PRIVATE
@@ -248,14 +250,14 @@ target_link_libraries(MHFU PRIVATE
 if(WIN32)
     target_link_libraries(MHFU PRIVATE ws2_32 iphlpapi)
     if(MINGW)
-        target_link_options(MHFU PRIVATE "-Wl,--out-implib,${CMAKE_CURRENT_BINARY_DIR}/libMHFU.dll.a" "-Wl,--export-all-symbols")
+        target_link_options(MHFU PRIVATE "-Wl,--out-implib,${CMAKE_CURRENT_BINARY_DIR}/libPokke.dll.a" "-Wl,--export-all-symbols")
     endif()
 endif()
 
 set_target_properties(MHFU PROPERTIES
     ENABLE_EXPORTS TRUE
     WINDOWS_EXPORT_ALL_SYMBOLS TRUE
-    OUTPUT_NAME MHFU
+    OUTPUT_NAME Pokke
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 

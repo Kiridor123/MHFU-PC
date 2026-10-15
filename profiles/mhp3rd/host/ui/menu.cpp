@@ -216,7 +216,7 @@ bool Menu::frame() {
         return true;
     }
 
-    begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
+    begin_panel("##menu", install::kProjectName, paused_ ? "Paused" : "Running", true);
 #if defined(MHP3RD_DEBUG_MENU)
     // The developer tools' page, in developer builds run with MHP3RD_DEBUG_MENU=1.
     const int tab_count = debug::enabled() ? 8 : 7;
@@ -1734,7 +1734,7 @@ void Menu::system() {
     save_rows();
 
     section("About:");
-    info_row("Yakumo", std::string(kYakumoVersion));
+    info_row(install::kProjectName, std::string(kYakumoVersion));
     info_row("Game", std::string(install::kGameTitle) + " (" + install::kDiscIdDisplay + ")");
     {
         std::string where = data_dir;

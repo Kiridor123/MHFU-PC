@@ -1,186 +1,134 @@
-<p align="center"><img src="docs/images/logo.svg" alt="Yakumo" width="720"></p>
-
-<p align="center"><b>English</b> · <a href="README.ru.md">Русский</a> · <a href="README.es.md">Español</a></p>
+# Pokke - Monster Hunter Freedom Unite (PC Native Port)
 
 <p align="center">
-  <a href="https://github.com/TeamGDB/Yakumo/releases/latest"><img src="https://img.shields.io/github/v/release/TeamGDB/Yakumo?style=flat-square&amp;label=release&amp;labelColor=2a1a22&amp;color=b98335" alt="Latest stable release"></a>
-  <a href="https://github.com/TeamGDB/Yakumo/actions/workflows/tests.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/TeamGDB/Yakumo/tests.yml?branch=main&amp;event=push&amp;style=flat-square&amp;label=tests&amp;labelColor=2a1a22" alt="Unit tests on main"></a>
-  <a href="docs/COVERAGE.md"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FTeamGDB%2FYakumo%2Fcoverage-badges%2Fcoverage.json&amp;style=flat-square&amp;cacheSeconds=300" alt="Coverage of measured source lines on main; see scope and unmeasured files"></a>
+  <img src="https://raw.githubusercontent.com/Kiridor123/MHFU-PC/main/docs/images/logo_placeholder.svg" alt="Pokke Logo" width="520" onerror="this.style.display='none'"/>
+</p>
+
+<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-b98335?style=flat-square&amp;labelColor=2a1a22" alt="License: MIT"></a>
-  <a href="docs/COMPATIBILITY.md"><img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS%20%C2%B7%20Android-b98335?style=flat-square&amp;labelColor=2a1a22" alt="Platforms: Windows, Linux, macOS and Android"></a>
-  <a href="https://github.com/TeamGDB/Yakumo/stargazers"><img src="https://img.shields.io/github/stars/TeamGDB/Yakumo?style=flat-square&amp;label=stars&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub stars"></a>
-  <a href="https://github.com/TeamGDB/Yakumo/releases"><img src="https://img.shields.io/github/downloads/TeamGDB/Yakumo/total?style=flat-square&amp;label=downloads&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub release asset downloads across all releases"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue?style=flat-square&amp;labelColor=2a1a22" alt="Platform: Windows | Linux">
+  <img src="https://img.shields.io/badge/vulkan-1.2+-red?style=flat-square&amp;labelColor=2a1a22" alt="Vulkan: 1.2+">
+  <img src="https://img.shields.io/badge/framerate-30%20%7C%2060%20%7C%20120%20FPS-green?style=flat-square&amp;labelColor=2a1a22" alt="Framerate: 30 / 60 / 120 FPS">
 </p>
 
-<p align="center">
-  <a href="https://discord.gg/YNrDs92caY"><img src="https://img.shields.io/badge/Discord-Join%20community-b98335?style=flat-square&amp;logo=discord&amp;logoColor=white&amp;labelColor=2a1a22" alt="Join the TeamGDB Discord community"></a>
-</p>
+**Pokke** es un port nativo para PC de **Monster Hunter Freedom Unite** (`ULUS-10391`, v1.01) creado mediante **recompilación estática anticipada (AOT)**: el código máquina MIPS Allegrex original de PSP es traducido a código C++ nativo y compilado directamente para tu procesador, ejecutándose sobre una reimplementación modular de bajo nivel con **Vulkan** y **SDL3**.
 
-# Yakumo
+> **No es un emulador tradicional**: No hay intérpretes lentos ni compiladores JIT en el núcleo.
+> **No es una descompilación**: El código fuente original de Capcom no se encuentra aquí.
 
-A native port of **Monster Hunter Portable 3rd HD Ver.** made by static recompilation: the game's PSP code is translated ahead of time into C++ and compiled for your machine, then run on a reimplementation of the PSP system software. It is not an emulator — there is no interpreter or JIT at the heart of it — and it is not a decompilation.
+---
 
-> **This project does not include any game assets.** You must provide the files from your own legally obtained copy of Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`) to install or build Yakumo.
+## Reconocimientos y Agradecimientos
 
-## Legal disclaimer
+Este proyecto fue posible gracias a la asombrosa arquitectura, investigación y desarrollo del proyecto **[Yakumo](https://github.com/TeamGDB/Yakumo)** creado por **TeamGDB**, así como al framework de recompilación estática **[PSPRecomp](https://github.com/TeamGDB/Yakumo)**. 
 
-**Yakumo** is an independent, open-source project and is not affiliated with, authorized by, sponsored by, or endorsed by CAPCOM, Sony, or any of their affiliates.
+Queremos expresar nuestro más sincero agradecimiento y crédito a todos los contribuidores de **Yakumo** y **PSPRecomp** por haber sentado las bases que hicieron viable este port para la aldea de Pokke.
 
-Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP, and all related trademarks, game assets, artwork, audio, characters, and other intellectual property belong to their respective owners.
+---
 
-**Yakumo** does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of Monster Hunter Portable 3rd HD Ver. to install or build **Yakumo**; the installer checks that copy and accepts only the original release.
+## Política "Bring Your Own Copy" y Aviso Legal
 
-To use **Yakumo**, users must provide the required files from their own legally obtained copy of Monster Hunter Portable 3rd HD Ver. for PlayStation 3.
+> [!IMPORTANT]
+> **Este repositorio NO CONTIENE ningún archivo con derechos de autor, código binario del juego, texturas, modelos 3D, música, cinemáticas ni imágenes de disco (.iso).**
 
-Users are solely responsible for obtaining, dumping, extracting, and using their game copy in accordance with the laws applicable in their jurisdiction.
+- **Pokke** es un proyecto de software libre, independiente y sin fines de lucro. No está afiliado, autorizado, respaldado ni patrocinado de ninguna manera por **CAPCOM Co., Ltd.** ni por **Sony Interactive Entertainment Inc.**
+- *Monster Hunter*, *Monster Hunter Freedom Unite*, *CAPCOM*, *PlayStation* y *PSP* son marcas comerciales y derechos reservados de sus respectivos propietarios.
+- Para jugar o compilar, **cada usuario debe proporcionar su propia copia legalmente adquirida** del juego en formato `.iso` (*Monster Hunter Freedom Unite*, edición US `ULUS-10391`, v1.01).
+- El software incluye un verificador de integridad SHA-256 para asegurar que únicamente se procesen copias legítimas y sin modificar.
+- Los usuarios son enteramente responsables de extraer y utilizar su copia de acuerdo con las leyes aplicables en su territorio. Este proyecto rechaza la piratería.
+- El código original de este repositorio se distribuye bajo la **Licencia MIT**.
 
-**Yakumo** does not support, provide, link to, or encourage the use of unauthorized or pirated copies of the game.
+---
 
-Any references to the original game or its trademarks are made solely for identification, compatibility, and interoperability purposes.
+## Características Principales
 
-Screenshots and other depictions of the original game may be used solely to document or demonstrate **Yakumo's** functionality. All depicted third-party game content remains the property of its respective rights holders.
+- **Ejecutable Nativo Ligero (`Pokke.exe`)**:
+  - Un único binario `.exe` nativo sin necesidad de scripts `.bat` ni lanzadores externos.
+- **Launcher y Asistente Gráfico Integrado**:
+  - En el primer inicio (o al ejecutar `Pokke.exe --launcher`), una interfaz gráfica intuitiva te permite seleccionar tu archivo `.iso` mediante explorador de archivos o arrastrar y soltar (Drag & Drop).
+  - Permite escoger si copiar el ISO al perfil de usuario o utilizarlo donde está (*in-place*).
+  - Permite elegir la ubicación de guardado (por defecto en `%APPDATA%/Pokke/ULUS10391/` o modo portátil en `./data/`).
+- **Menú de Configuración en el Juego con tecla `F1`**:
+  - Presiona **`F1`** (o `Esc` / `L3+R3` en mando) en cualquier momento de la partida para abrir el menú en tiempo real.
+- **Resolución Arbitraria y Escalado Gráfico**:
+  - Escalado interno desde **1x PSP (480×272)** hasta **6x (4K / 3840×2160)**.
+  - Modos de ventana libre, pantalla completa exclusiva y soporte para monitores ultra-panorámicos (Ultrawide).
+  - Filtros de pantalla: Bilineal suave o píxel perfecto (Sharp).
+- **Tasa de Cuadros a 60 y 120 FPS (Sin acelerar el juego)**:
+  - Soporte de interpolación de fotogramas a **30, 45, 60, 90, 120 FPS** o sincronizado a la tasa de refresco de tu monitor (*Match display*).
+  - La lógica y física de la simulación de caza se mantienen exactamente a 30 FPS originales, logrando una fluidez visual moderna sin alterar la velocidad del juego.
+- **Soporte Moderno de Mandos y Doble Joystick (Cámara Analógica)**:
+  - Detección automática de mandos de Xbox, PlayStation (DualShock / DualSense), Nintendo Switch Pro y genéricos.
+  - **Control de cámara con el joystick derecho**: Permite girar e inclinar la vista del cazador de forma fluida y natural sin necesidad de usar "la garra" de PSP.
+  - Editor visual para reasignar cualquier tecla o botón de PSP: Cruceta direccional (D-Pad), Joystick analógico, Botones de acción (Cuadrado □, Triángulo △, Círculo ○, Equis ✕), Gatillos L y R, Start y Select.
+- **Compatibilidad Total de Partidas Guardadas**:
+  - Lee y escribe partidas en el formato estándar de PSP (`PSP/SAVEDATA/ULUS10391`). Puedes transferir tus partidas desde y hacia una consola PSP o emuladores sin conversión.
+- **Arquitectura de Overlays Dinámicos**:
+  - 14 módulos de modos de juego (`game_task`, `lobby_task`, `download_task`, `gallery_task`, `option_task`, etc.) compilados como DLLs nativas de alto rendimiento.
 
-The license covering **Yakumo** applies only to the project's own original code and materials and does not grant any rights to third-party intellectual property.
+---
 
-**Yakumo** provides the software, not the game. You must provide your own legally obtained copy.
+## Cómo Jugar
 
-## Status: playable
+### Inicio Rápido:
+1. Descarga el ejecutable `Pokke.exe` (junto con las DLLs requeridas) desde la sección de **Releases**.
+2. Haz doble clic en **`Pokke.exe`**.
+3. En la pantalla de bienvenida, selecciona tu archivo `Monster Hunter Freedom Unite.iso` (o arrástralo sobre la ventana).
+4. ¡A cazar! Durante la partida, presiona **`F1`** para ajustar gráficos, fotogramas o controles.
 
-You can load a save copied from a PSP or start a new game, hunt, play with other hunters and save your progress, with music, movies and lighting. The game simulation stays at the PSP's 30 frames per second; optional frame interpolation presents it at 45, 60, 90, 120 or the display's refresh rate without changing game speed. Loads are shorter than on a PSP: while the game loads in silence, it runs ahead of real time (*Fast loading*, on by default).
-
-| Works | Missing or rough |
-| --- | --- |
-| Booting, menus, character creation, the village and hunting areas | |
-| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and backups from the menu | Curved surfaces (#10); the save-data dialogs draw nothing yet (#33) |
-| Vulkan graphics: models, animation, textures, transparency, lighting and fog; adjustable internal resolution, arbitrary window shapes and frame interpolation | |
-| PPSSPP-compatible HD texture packs, installed from the menu or copied into the data directory | |
-| Mods in the community's mhp3reload format: file replacements and patches, managed from the menu (see the [profile README](profiles/mhp3rd/README.md#mods)) | Code mods (#81) |
-| Sound effects, streamed music and cutscene movies | |
-| Fully rebindable keyboard and mouse controls; gamepads with an analog right-stick camera and aim, control presets and button-combination binds | |
-| Yakumo's in-game menu, first-run setup, file browser and on-screen keyboard, all usable with a gamepad, keyboard or mouse | |
-| All 355 code overlays recompiled | |
-| Multiplayer: through the ad hoc servers PSP players use, or hosted from the game on a LAN or VPN | |
-
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Game Mode with native Vulkan and the built-in controls, and on Windows 11 with MSVC.
-
-The state of each part of the game on each platform is in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
-
-## Play
-
-### ⬇️ [Download the latest stable release](https://github.com/TeamGDB/Yakumo/releases/latest)
-
-A prebuilt release needs nothing but your disc image. Pick the file for your device from the release's **Assets**, start it, and point the first-run setup at your image: it checks the image, prepares the game from it and keeps everything in a per-user directory. Updating keeps your settings and saves.
-
-| Device | File | Install |
-| --- | --- | --- |
-| **Windows** (x86-64) | `yakumo-…-windows-x86_64.zip` | Unzip it anywhere and run `Yakumo.exe`. Its data goes to `%APPDATA%`. From v0.7.0 there is also a `…-portable.zip` that keeps everything (settings, saves, the prepared game) in a `data` folder next to `Yakumo.exe`, e.g. on a USB drive; see [Portable copy](profiles/mhp3rd/README.md#portable-copy). |
-| **Steam Deck and Linux** | `yakumo-…-linux-x86_64.flatpak` (or the portable `.tar.gz`) | Install the Flatpak, start Yakumo, and add it to Steam for Game Mode. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling. |
-| **Android** (64-bit, Android 10+, Vulkan 1.1) | `yakumo-…-android-arm64.apk` | Open the APK on the phone and allow installing it. On the first start it takes your `.iso` through Android's file picker and copies it into the app (about 1.3 GB besides the app's 0.8 GB). Touch controls are drawn over the game; gamepads work too. |
-| **macOS** (Apple Silicon, macOS 13+) | `yakumo-…-macos-arm64.dmg` | Open the disk image and drag Yakumo to Applications. It is not notarized by Apple, so macOS asks you to allow it once. [`docs/MACOS.md`](docs/MACOS.md) covers installing, the first start, where saves live, updating and uninstalling. |
-
-**Test builds.** The [releases page](https://github.com/TeamGDB/Yakumo/releases) also lists test builds, marked *(test)* (older ones *(unstable)*) and published as pre-releases. They carry the newest changes and may have new bugs: install one only if you want to help test. If you just want to play, use the latest stable release above.
-
-## Community translations
-
-Available in **Yakumo v0.7.5 and later**.
-
-Translations of the game's text are maintained by their authors and downloaded separately. See each project's README for compatibility details and updates.
-
-The catalog links only to public GitHub repositories and downloads hosted on GitHub (repository files or Releases).
-
-| Language | Maintainer | Version | Project | Download |
-| --- | --- | --- | --- | --- |
-| Portuguese (Brazil) | [devdouglasonofre](https://github.com/devdouglasonofre) | **V1** | [mhp3rd-yakumo-ptbr](https://github.com/devdouglasonofre/mhp3rd-yakumo-ptbr) | [Latest release](https://github.com/devdouglasonofre/mhp3rd-yakumo-ptbr/releases/latest) |
-| Russian | [MHunterG](https://github.com/MHunterG) | **Draft** | [mhp3rd-yakumo-ru](https://github.com/MHunterG/mhp3rd-yakumo-ru) | [Latest release](https://github.com/MHunterG/mhp3rd-yakumo-ru/releases/latest) |
-
-Download the `.lang` file, open **System → Text → Import Translation…**, select the imported language under **Game Text Language**, then restart. See [Text translation](docs/TEXT_TRANSLATION.md) for details.
-
-## Requirements
-
-Building from source is a fully supported way to play. It needs:
-
-- Your own copy of the game (see above)
-- CMake 3.20 or newer, Ninja and a C++20 compiler
-- Python 3
-- SDL3, Vulkan and `glslangValidator`
-- `make` and a C compiler on macOS and Linux: the build makes its own FFmpeg for the music and the movies. Nothing to install for it on Windows
-- A few gigabytes of free memory for the build; the recompiled code is large
-
-## Getting started
-
-In short:
-
-1. Prepare the game's executable from your disc image: build `Yakumo` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`.
-2. Configure, generate the recompiled code with `profiles/mhp3rd/scripts/generate.sh`, and build `Yakumo`.
-3. Recompile the code overlays with `profiles/mhp3rd/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
-4. Run `out/mhp3rd/bin/Yakumo`.
-
-The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Building on every platform, Windows included, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md).
-
-## Controls
-
-On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Control presets (Default, Modern with attacks on the triggers, Left-handed, Classic keyboard, and your own) cover every control, and any of them can be bound to a single button or a combination such as L1 + ○. Keyboard and mouse play is complete; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhp3rd/README.md#running).
-
-Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu. It holds video, audio, control, network and save settings, including aspect ratio, frame rate, internal resolution and HD texture pack import. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
-
-## Roadmap
-
-- Android on real phones: device testing, graphics drivers and performance ([#127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
-- One consistent visual style across Yakumo's setup screens, menus and overlays ([#33](https://github.com/TeamGDB/Yakumo/issues/33))
-- Touch controls for gameplay, menus, camera movement and aiming
-
-## How it works
-
-The executable is analyzed and every instruction of its code is emitted as C++, which is compiled into the program. The game also loads 355 code overlays at run time into a handful of shared memory slots; each is recompiled into its own library, and when the game loads one, the matching library is installed between frames. An interpreter covers any code the recompiled set does not reach, so nothing stops the game — it only runs slower there.
-
-Around that code sits a reimplementation of the PSP system: a kernel with threads, semaphores, event flags and timers; disc I/O read straight from the image; a Vulkan renderer for the PSP's graphics engine; software voice mixing for audio; and input from SDL3.
-
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the execution model and [`docs/DATA_BIN.md`](docs/DATA_BIN.md) the game's archive format. [`docs/TESTING.md`](docs/TESTING.md) has the smoke test and how to report results.
-
-## Repository layout
-
-```text
-include/psprecomp/   Framework interfaces: runtime, memory, Allegrex state
-src/                 Framework: ELF loading, decoder, runtime, interpreter
-tools/               Framework: analyzer and C++ code generator
-tests/               Framework regression tests
-configs/             PSP NID data and generic examples
-profiles/mhp3rd/     Everything specific to this game: host, kernel, renderer,
-                     audio, input, configuration and build scripts
-docs/                Architecture, archive format, profile guide, source rules
-```
-
-The recompiled code itself is generated locally from your copy of the game and is never committed.
-
-## Built on PSPRecomp
-
-**Yakumo** is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
-
+### Opciones de Línea de Comandos:
 ```bash
-cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
-cmake --build out/framework --config Release
-ctest --test-dir out/framework -C Release --output-on-failure
+# Abrir el lanzador / asistente gráfico para cambiar la ISO o ajustes
+Pokke.exe --launcher
+
+# Modo portátil (guarda configuraciones y partidas en ./data/ junto al ejecutable)
+Pokke.exe --portable
+
+# Especificar una carpeta personalizada para datos y partidas
+Pokke.exe --data-dir "D:/MisPartidas/MHFU"
+
+# Instalar silenciosamente desde un archivo ISO
+Pokke.exe --install "C:/Juegos/MHFU.iso" --in-place
 ```
 
-To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) sets out the rules for independently written code and third-party source.
+---
 
-## Authors
+## Compilación desde el Código Fuente
 
-- [@MHunterG](https://github.com/MHunterG)
-- [@mojitosunrise](https://github.com/mojitosunrise)
+### Requisitos (Windows con MSYS2 UCRT64):
+- **Compilador C++20**: GCC 14+ / Clang 17+ (`mingw-w64-ucrt-x86_64-gcc`)
+- **Herramientas de construcción**: CMake 3.25+ y Ninja (`mingw-w64-ucrt-x86_64-cmake`, `mingw-w64-ucrt-x86_64-ninja`)
+- **Bibliotecas**: SDL3, Vulkan Loader & Headers, Glslang (`mingw-w64-ucrt-x86_64-sdl3`, `mingw-w64-ucrt-x86_64-vulkan-loader`, `mingw-w64-ucrt-x86_64-vulkan-headers`, `mingw-w64-ucrt-x86_64-glslang`)
+- **Python 3.10+**
 
-## Credits
+### Instrucciones de Compilación:
+```bash
+# 1. Clonar el repositorio
+git clone https://github.com/Kiridor123/MHFU-PC.git
+cd MHFU-PC
 
-- [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — the recompilation framework this project builds on
-- [SDL3](https://www.libsdl.org/) — windowing, input and audio output
-- [FFmpeg](https://ffmpeg.org/) — music and movie decoding
-- [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — rendering
-- [Dear ImGui](https://github.com/ocornut/imgui) — Yakumo's menus and setup screens
-- [tiny-AES-c](https://github.com/kokke/tiny-AES-c) — the installer and PSP save-data support
-- [stb_truetype](https://github.com/nothings/stb) — font rasterization
-- [svanheulen/mhef](https://github.com/svanheulen/mhef) — community documentation of the game's archive format
-- [Cinzel](https://github.com/NDISCOVER/Cinzel) and [Shippori Mincho](https://github.com/fontdasu/ShipporiMincho) — the logo's lettering, under the SIL Open Font License
+# 2. Preparar el juego con tu copia legal de MHFU
+python profiles/mhfu/scripts/prepare_game.py "Monster Hunter Freedom Unite.iso"
 
-## License
+# 3. Generar el código C++ recompilado (AOT)
+python profiles/mhfu/scripts/generate.py
 
-The repository is distributed under the MIT License; see [`LICENSE`](LICENSE). Third-party files keep their own notices beside them; [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) lists their origins and licences.
+# 4. Compilar los overlays de juego dinámicos
+python profiles/mhfu/scripts/build_mode_overlays.py
+
+# 5. Configurar y compilar Pokke.exe
+cmake -B out/mhfu -S . -G Ninja -DPSPRECOMP_PROFILE=mhfu
+cmake --build out/mhfu --target Pokke
+
+# El ejecutable Pokke.exe estará listo en out/mhfu/bin/Pokke.exe
+```
+
+---
+
+## Licencia
+
+Este proyecto está licenciado bajo la **Licencia MIT** — consulta el archivo [LICENSE](LICENSE) para más detalles.
+
+- Copyright (c) 2026 PSPRecomp contributors
+- Copyright (c) 2026 Yakumo contributors
+- Copyright (c) 2026 Pokke contributors

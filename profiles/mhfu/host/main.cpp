@@ -4,6 +4,8 @@
 #include "platform/utf8_path.hpp"
 
 #include "install/game_identity.hpp"
+#include "install/installer.hpp"
+#include "install/user_data.hpp"
 #include "kernel/kernel.hpp"
 #include "settings/settings.hpp"
 
@@ -50,22 +52,28 @@ std::uint64_t configured_max_dispatches() {
 }
 
 constexpr const char *kUsage =
-    "Monster Hunter Freedom Unite (PC Native Port)\n\n"
+    "Pokke - Monster Hunter Freedom Unite (PC Native Port)\n\n"
     "Usage:\n"
-    "  MHFU [game_dir]\n"
-    "  MHFU --install <image.iso>\n"
-    "  MHFU --data-dir <dir>\n"
-    "  MHFU --help\n\n"
+    "  Pokke [game_dir]\n"
+    "  Pokke --launcher\n"
+    "  Pokke --install [image.iso [--in-place]]\n"
+    "  Pokke --data-dir <dir>\n"
+    "  Pokke --portable\n"
+    "  Pokke --help\n\n"
     "Options:\n"
     "  game_dir        Directory containing BOOT.ELF, disc.iso, and ms0/\n"
-    "  --install image Set up game data from your legally acquired ISO image\n"
+    "  --launcher      Open graphical setup & settings wizard\n"
+    "  --install       Open graphical setup screens to select ISO\n"
+    "  --install image Set up game data directly from image.iso without GUI\n"
+    "  --in-place      Use image where it is instead of copying\n"
     "  --data-dir dir  Specify custom user data directory for saves and settings\n"
-    "  --portable      Store data locally next to the executable\n";
+    "  --portable      Store data locally in data/ next to Pokke.exe\n";
 
 struct Options {
     std::optional<std::filesystem::path> game_dir;
     bool install = false;
     std::optional<std::filesystem::path> install_image;
+    bool in_place = false;
     std::optional<std::filesystem::path> data_dir;
     bool portable = false;
 };
@@ -80,10 +88,12 @@ Options parse_options(const std::vector<std::string> &arguments) {
     for (std::size_t i = 1; i < arguments.size(); ++i) {
         const std::string &arg = arguments[i];
         if (arg == "--help" || arg == "-h") throw UsageError("");
-        if (arg == "--install") {
+        if (arg == "--install" || arg == "--launcher" || arg == "--setup") {
             options.install = true;
             if (i + 1 < arguments.size() && arguments[i + 1][0] != '-')
                 options.install_image = mhp3rd::path_from_utf8(arguments[++i]);
+        } else if (arg == "--in-place") {
+            options.in_place = true;
         } else if (arg == "--portable") {
             options.portable = true;
         } else if (arg == "--data-dir") {
@@ -119,23 +129,86 @@ GameFiles files_in_game_directory(const std::filesystem::path &game_dir) {
     return files;
 }
 
+int prepare_data_directory(const Options &options) {
+    namespace install = mhp3rd::install;
+    if (options.data_dir) install::set_data_directory_override(*options.data_dir);
+    if (options.portable) install::set_portable_requested();
+    const install::DataDirectory &data = install::data_directory();
+    if (const std::string problem = install::check_writable(data.path); !problem.empty()) {
+        (void)install::report_problem("Can't write to the data folder", problem, false);
+        return 1;
+    }
+    return -1;
+}
+
 std::optional<GameFiles> locate_game(const Options &options) {
+    namespace install = mhp3rd::install;
     if (options.game_dir) return files_in_game_directory(*options.game_dir);
     if (const std::filesystem::path dir = mhp3rd::environment_path("MHFU_GAME_DIR"); !dir.empty())
         return files_in_game_directory(dir);
 
-    // Check default profile directory in local checkout
+    const std::filesystem::path data_dir = install::user_data_directory();
     const std::filesystem::path checkout_game_dir = "profiles/mhfu/game";
-    if (std::filesystem::exists(checkout_game_dir / "BOOT.ELF") || std::filesystem::exists(checkout_game_dir / "disc.iso"))
-        return files_in_game_directory(checkout_game_dir);
+    bool run_setup = options.install;
 
-    std::cerr << "Error: No game data found.\n"
-              << "Please supply your legally acquired copy of " << mhfu::install::kGameTitle << " ("
-              << mhfu::install::kDiscIdDisplay << "):\n"
-              << "  MHFU profiles/mhfu/game\n"
-              << "or run:\n"
-              << "  python profiles/mhfu/scripts/prepare_game.py <path_to_mhfu.iso>\n";
-    return std::nullopt;
+    for (;;) {
+        if (!run_setup) {
+            if (const auto installed = install::find_installation(data_dir)) {
+                std::error_code ec;
+                if (std::filesystem::is_regular_file(installed->disc_image, ec)) {
+                    GameFiles files;
+                    files.executable = installed->executable;
+                    files.disc_image = installed->disc_image;
+                    files.memory_stick = data_dir / "ms0";
+                    if (!std::filesystem::exists(files.memory_stick))
+                        std::filesystem::create_directories(files.memory_stick / "PSP" / "SAVEDATA");
+                    return files;
+                }
+                const std::string where = install::path_to_utf8(installed->disc_image);
+                const std::string message = installed->image_copied
+                    ? "The copy of the disc image Pokke made is missing:\n" + where +
+                        "\n\nSet up again to restore it (Pokke --launcher)."
+                    : "The disc image Pokke was set up with is no longer at:\n" + where +
+                        "\n\nPut it back there, or set up again to choose where it is now "
+                        "(Pokke --launcher).";
+                if (!install::report_problem("Disc image not found", message, true)) return std::nullopt;
+                run_setup = true;
+                continue;
+            }
+
+            // Developer checkout in profiles/mhfu/game
+            if (std::filesystem::exists(checkout_game_dir / "BOOT.ELF") ||
+                std::filesystem::exists(checkout_game_dir / "disc.iso"))
+                return files_in_game_directory(checkout_game_dir);
+        }
+
+        // Direct command-line install if image was given
+        if (options.install_image) {
+            try {
+                install::install(*options.install_image,
+                    options.in_place ? install::ImageStorage::InPlace : install::ImageStorage::Copy,
+                    data_dir, install::print_progress);
+                std::cout << "Game data is ready in " << install::path_to_utf8(data_dir) << ".\n";
+                run_setup = false;
+                continue;
+            } catch (const install::InstallError &e) {
+                std::cerr << "Setup failed: " << e.what() << "\n";
+                return std::nullopt;
+            }
+        }
+
+        // Open graphical launcher / setup wizard in Vulkan window
+        auto ui = install::make_installer_ui();
+        if (!ui) {
+            std::cerr << "No game data found in " << install::path_to_utf8(data_dir) << ".\n"
+                      << "Please supply your legally acquired copy of " << mhfu::install::kGameTitle << " ("
+                      << mhfu::install::kDiscIdDisplay << "):\n"
+                      << "  Pokke --install /path/to/image.iso\n";
+            return std::nullopt;
+        }
+        if (!install::run_installer(*ui, data_dir)) return std::nullopt;
+        run_setup = false;
+    }
 }
 
 } // namespace
@@ -151,9 +224,12 @@ int main(int argc, char **argv) {
                 std::cout << kUsage;
                 return 0;
             }
-            std::cerr << "MHFU: " << e.what() << "\n\n" << kUsage;
+            std::cerr << "Pokke: " << e.what() << "\n\n" << kUsage;
             return 2;
         }
+
+        if (const int exit_code = prepare_data_directory(options); exit_code >= 0)
+            return exit_code;
 
         const auto files = locate_game(options);
         if (!files) return 1;
@@ -182,14 +258,16 @@ int main(int argc, char **argv) {
         mhfu::install_profile(runtime, elf, paths);
 
         std::cout << "========================================================\n"
-                  << "  Monster Hunter Freedom Unite (PC Native Port)\n"
+                  << "  Pokke - Monster Hunter Freedom Unite (PC Native Port)\n"
                   << "========================================================\n"
-                  << "Executable: " << mhp3rd::path_to_utf8(executable) << "\n"
-                  << "SHA-256:    " << sha256 << "\n"
-                  << "Disc image: " << (paths.disc_image.empty() ? "<none>" : mhp3rd::path_to_utf8(paths.disc_image)) << "\n"
-                  << "RAM:        64 MiB\n"
-                  << "Entry:      " << psprecomp::hex32(elf.runtime_entry(mhfu::kLoadBase)) << "\n"
-                  << "Functions:  " << runtime.function_count() << "\n"
+                  << "Executable:   " << mhp3rd::path_to_utf8(executable) << "\n"
+                  << "SHA-256:      " << sha256 << "\n"
+                  << "Disc image:   " << (paths.disc_image.empty() ? "<none>" : mhp3rd::path_to_utf8(paths.disc_image)) << "\n"
+                  << "Save data:    " << mhp3rd::path_to_utf8(paths.memory_stick) << "\n"
+                  << "RAM:          64 MiB\n"
+                  << "Entry:        " << psprecomp::hex32(elf.runtime_entry(mhfu::kLoadBase)) << "\n"
+                  << "Functions:    " << runtime.function_count() << "\n"
+                  << "In-game menu: Press [F1] or Esc\n"
                   << "--------------------------------------------------------\n"
                   << "Starting native execution...\n\n";
 
@@ -204,7 +282,7 @@ int main(int argc, char **argv) {
         runtime.report_hle_histogram();
         return runtime.stop_reason().empty() ? 0 : 4;
     } catch (const std::exception &e) {
-        std::cerr << "MHFU error: " << e.what() << "\n";
+        std::cerr << "Pokke error: " << e.what() << "\n";
         return 1;
     }
 }

@@ -1,129 +1,31 @@
-# Monster Hunter Freedom Unite (PC Native Port)
+# Pokke - Monster Hunter Freedom Unite (PC Native Port)
 
-Port nativo para PC de **Monster Hunter Freedom Unite** (`ULUS-10391`, v1.01) mediante recompilación estática anticipada (AOT - Ahead-Of-Time Recompilation) usando el framework **PSPRecomp**, renderizado por hardware con **Vulkan** y gestión de entrada y ventana con **SDL3**.
+Perfil de recompilación estática para **Monster Hunter Freedom Unite** (`ULUS-10391`, v1.01).
 
-A diferencia de un emulador tradicional, el código de máquina MIPS Allegrex original del juego se traduce directamente a instrucciones nativas C++ y se compila para la máquina anfitriona (x86_64 / ARM64), logrando tiempos de carga instantáneos, soporte nativo de doble stick para la cámara, tasas de refresco altas (60+ FPS con interpolación de frames), resolución arbitraria y uso mínimo de CPU y memoria.
+Basado y logrado gracias al proyecto **[Yakumo](https://github.com/TeamGDB/Yakumo)** de **TeamGDB** y al framework **PSPRecomp**.
 
----
+## Identificadores del Juego
 
-## Política "Bring Your Own Copy" y Aviso Legal
+- **Disc ID:** `ULUS10391` (`ULUS-10391`)
+- **Título:** `Monster Hunter Freedom Unite`
+- **Región:** USA / NTSC-U (v1.01)
+- **Hash SHA-256 de `BOOT.BIN` / `BOOT.ELF`:** `3070954e2dc88fd0b0836c0c1dc526531aca4a213b0f18806e324963efb514f4`
+- **Hash SHA-256 de `EBOOT.BIN` original:** `3354adb3ee40821f230c4055b9bf7cc5d4c864e42abb74ce8ac022933f9697a7`
 
-Este repositorio **NO CONTIENE ningún archivo con derechos de autor, código binario del juego, texturas, modelos 3D, música o cinemáticas**.
+## Ejecutable del Port
 
-- Cada usuario debe proveer su propia copia legalmente adquirida de *Monster Hunter Freedom Unite* en formato `.iso` (versión US `ULUS-10391`, v1.01).
-- El ejecutable `MHFU.exe` es ligero y carga directamente los recursos y cinemáticas desde la copia del usuario.
-- Los archivos `.iso`, ejecutables desencriptados `.ELF`, directorios de juego y código generado por la recompilación están estrictamente excluidos por `.gitignore`.
-- Proyecto de interoperabilidad independiente sin fines de lucro, no afiliado ni respaldado por CAPCOM Co., Ltd. ni Sony Interactive Entertainment.
+- **Nombre:** `Pokke.exe`
+- **Directorio de salida:** `out/mhfu/bin/Pokke.exe`
+- **Launcher / Asistente Gráfico:** Se abre en el primer inicio o con `Pokke.exe --launcher`
+- **Menú de configuración en tiempo real:** Tecla **`F1`** o `Esc`
+- **Controles de cámara:** Joystick derecho emula la cruceta D-Pad para rotación suave en 360 grados sin claw grip.
+- **Tasa de fotogramas:** 30, 45, 60, 90, 120 FPS o Match Display con interpolación de sub-cuadros.
 
----
+## Módulos de Modo (Overlays)
 
-## Características del Port Nativo
-
-| Característica | Estado | Detalle |
+| Slot | Módulos Principales | Estado |
 | :--- | :--- | :--- |
-| **Arranque y Ejecución** | ✅ Funcional | Carga nativa ultrarrápida desde ISO o carpeta local. |
-| **Gráficos Vulkan** | ✅ Funcional | Renderizado acelerado por GPU, swapchain moderno, interpolación de cuadros. |
-| **Audio Nativo** | ✅ Funcional | Capcom Sound Engine CORE v2.0 nativo con decodificación ATRAC3 y audio estéreo 44.1 kHz. |
-| **Controles Modernos** | ✅ Funcional | Soporte nativo para mando con segundo stick analógico para cámara libre y teclado/ratón. |
-| **Sistema de Overlays** | ✅ Funcional | 298 módulos dinámicos cargados como bibliotecas nativas `.dll` / `.so`. |
-| **Partidas Guardadas** | ✅ Funcional | Compatible al 100% con saves originales de PSP (`ULUS10391`). |
+| `0x09A5F300` | `game_task`, `lobby_task`, `download_task`, `gallery_task`, `option_task`, `edit_task`, `arcade_task`, `cont_task`, `demo_task`, `install_task`, `movie_task`, `show_select_task` | Compilados nativos (DLL) |
+| `0x09C19100` | `game_sub`, `demo_sub` | Compilados nativos (DLL) |
 
----
-
-## Requisitos de Compilación
-
-### Windows (MSYS2 UCRT64 recomendado)
-- **CMake** 3.25 o superior
-- **GCC / Clang** con soporte para C++20 (`mingw-w64-ucrt-x86_64-gcc`)
-- **Ninja** (`mingw-w64-ucrt-x86_64-ninja`)
-- **SDL3** (`mingw-w64-ucrt-x86_64-sdl3`)
-- **Vulkan Loader & Headers** (`mingw-w64-ucrt-x86_64-vulkan-loader`, `mingw-w64-ucrt-x86_64-vulkan-headers`)
-- **Glslang** (`mingw-w64-ucrt-x86_64-glslang`)
-- **Python 3.10+**
-
-En MSYS2 UCRT64 se instalan con:
-```bash
-pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja \
-          mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-sdl3 \
-          mingw-w64-ucrt-x86_64-vulkan-loader mingw-w64-ucrt-x86_64-vulkan-headers \
-          mingw-w64-ucrt-x86_64-glslang python
-```
-
----
-
-## Guía Paso a Paso: De la ISO al Ejecutable Nativo
-
-### 1. Preparar el juego con tu ISO
-Coloca tu ISO legalmente adquirida de *Monster Hunter Freedom Unite* y ejecuta:
-```bash
-python profiles/mhfu/scripts/prepare_game.py "Monster Hunter Freedom Unite.iso"
-```
-Este script:
-- Valida la integridad del archivo y el Disc ID (`ULUS-10391`).
-- Extrae el ejecutable `BOOT.ELF` desencriptado a `profiles/mhfu/game/BOOT.ELF`.
-- Vincula `disc.iso` para permitir streaming de audio y cinemáticas durante la partida.
-
-### 2. Generar el código C++ reensamblado (AOT Recompilation)
-```bash
-python profiles/mhfu/scripts/generate.py
-```
-Traduce el 100% de las instrucciones MIPS Allegrex de `BOOT.ELF` en 68 unidades de compilación C++ en `profiles/mhfu/generated/`.
-
-### 3. Configurar y compilar el ejecutable principal
-```bash
-cmake -B out/mhfu -S . -G Ninja -DPSPRECOMP_PROFILE=mhfu
-cmake --build out/mhfu --target MHFU
-```
-El ejecutable nativo resultante se encontrará en `out/mhfu/bin/MHFU.exe`.
-
-### 4. Compilar los overlays de juego (Opcional pero recomendado)
-Para compilar los módulos de modo (`demo_task`, `lobby_task`, `game_task`, `game_sub`, etc.) a bibliotecas dinámicas nativas:
-```bash
-python profiles/mhfu/scripts/build_mode_overlays.py
-```
-*(Nota: Si un overlay no ha sido precompilado, el motor incluye un intérprete Allegrex de respaldo para ejecutarlo sin interrupciones).*
-
----
-
-## Cómo Ejecutar el Juego
-
-### Modo Instalador Rápido (Recomendado para usuarios)
-Si tienes el ejecutable compilado y tu ISO:
-```bash
-MHFU.exe --install "Monster Hunter Freedom Unite.iso"
-```
-Instala los datos de forma limpia en el perfil de usuario y arranca directamente.
-
-### Modo Portable
-Para mantener configuraciones y partidas en la misma carpeta del ejecutable:
-```bash
-MHFU.exe --portable profiles/mhfu/game
-```
-
----
-
-## Estructura de la Memoria y Overlays
-
-| Región | Dirección | Tamaño / Uso |
-| :--- | :--- | :--- |
-| **Base Load** | `0x08804000` | Código principal de `BOOT.ELF` (64 MiB RAM) |
-| **Entry Point** | `0x08906A54` | Punto de entrada del juego |
-| **Global Pointer** | `0x089D3BA0` | Registro `$gp` de Allegrex |
-| **Slot 1 Overlays** | `0x09A5F300` | 12 overlays de modos de juego (`game_task`, `lobby_task`, etc.) |
-| **Slot 2 Overlays** | `0x09C19100` | 2 sub-rutinas mayores (`demo_sub`, `game_sub`) |
-| **Slot 3 Overlays** | `0x09D1A280` | 17 módulos de IA y monstruos (`em01` a `em17`) |
-| **Slot 4 Overlays** | `0x09D63100` | 267 definiciones de misiones y áreas (`stage000` a `stage266`) |
-
----
-
-## Controles por Defecto
-
-- **Palanca Izquierda / WASD:** Movimiento del cazador
-- **Palanca Derecha / Ratón:** Cámara analógica libre
-- **Botón Sur / K / Barra Espaciadora:** Rodar / Esquivar
-- **Botón Este / L:** Ataque secundario / Desenvainar
-- **Botón Oeste / J:** Ataque principal
-- **Botón Norte / I:** Usar objeto / Guardar arma
-- **Gatillos L / R:** Correr / Bloqueo
-- **Start / Enter:** Menú de pausa
-- **Select / Tab:** Mapa
+Consulte el [README principal](../../README.md) para detalles completos de uso y compilación.

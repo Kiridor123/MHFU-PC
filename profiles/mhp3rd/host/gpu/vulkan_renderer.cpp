@@ -542,7 +542,9 @@ void read_gamepad(SDL_Gamepad *device, const input::PadState &mapped, PadState &
     // there. Pressing the D-pad bits as well would turn the camera twice, hence
     // the either/or: the claw emulation is only for builds where that path is
     // not wanted.
-    if (tuning.right_stick_mode == settings::RightStick::DPad) {
+    const bool drives_dpad = (tuning.right_stick_mode == settings::RightStick::DPad) ||
+        (tuning.right_stick_mode == settings::RightStick::Camera && std::strcmp(install::kDiscId, "ULUS10391") == 0);
+    if (drives_dpad) {
         if (right_x < -tuning.right_stick) buttons |= 0x0080u;
         if (right_x > tuning.right_stick) buttons |= 0x0020u;
         if (right_y < -tuning.right_stick) buttons |= 0x0010u;
@@ -6034,10 +6036,12 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     const int camera_y = std::clamp(typed.camera_y + touch_mapped.camera_y, -127, 127);
     // Camera keys push the second stick fully, as a right stick would: in
     // the D-pad mode they press the D-pad instead, and with it off, nothing.
-    if (player.right_stick == settings::RightStick::Camera) {
+    const bool drives_dpad_typed = (player.right_stick == settings::RightStick::DPad) ||
+        (player.right_stick == settings::RightStick::Camera && std::strcmp(install::kDiscId, "ULUS10391") == 0);
+    if (!drives_dpad_typed && player.right_stick == settings::RightStick::Camera) {
         pad.right_x = static_cast<std::uint8_t>(0x80 + camera_x);
         pad.right_y = static_cast<std::uint8_t>(0x80 + camera_y);
-    } else if (player.right_stick == settings::RightStick::DPad) {
+    } else if (drives_dpad_typed) {
         if (camera_x < 0) pad.buttons |= 0x0080u;
         if (camera_x > 0) pad.buttons |= 0x0020u;
         if (camera_y < 0) pad.buttons |= 0x0010u;

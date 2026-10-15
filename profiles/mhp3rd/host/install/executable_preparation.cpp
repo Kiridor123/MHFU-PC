@@ -120,9 +120,14 @@ Block unwrap_payload_key(std::span<const std::uint8_t> header) {
 
 std::vector<std::uint8_t> prepare_executable(
     std::span<const std::uint8_t> eboot_bin, const std::function<void(std::uint64_t, std::uint64_t)> &progress) {
+    if (psprecomp::sha256_bytes(eboot_bin) == kExecutableSha256) {
+        if (progress) progress(eboot_bin.size(), eboot_bin.size());
+        return std::vector<std::uint8_t>(eboot_bin.begin(), eboot_bin.end());
+    }
+
     if (psprecomp::sha256_bytes(eboot_bin) != kEncryptedExecutableSha256)
         throw psprecomp::Error(
-            "EBOOT.BIN is not the supported executable of " + std::string(kGameTitle) + " (" + kDiscIdDisplay + ")");
+            "The executable is not the supported release of " + std::string(kGameTitle) + " (" + kDiscIdDisplay + ")");
 
     // The hash already pins the file; these checks document the one layout
     // handled here.

@@ -14,11 +14,13 @@
 #include <SDL3/SDL_stdinc.h>
 #endif
 
+#include "install/game_identity.hpp"
+
 namespace mhp3rd::install {
 namespace {
 
-constexpr const char *kOrganization = "Yakumo";
-constexpr const char *kApplication = "MHP3rd";
+const char *const kOrganization = kProjectName;
+const char *const kApplication = kDiscId;
 
 std::string trim(const std::string &text) {
     const auto first = text.find_first_not_of(" \t\r\n");

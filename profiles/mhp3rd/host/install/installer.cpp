@@ -149,13 +149,14 @@ Inspection inspect(const std::filesystem::path &path) {
     const auto eboot_entry = iso->find(kExecutablePathOnDisc);
     if (!eboot_entry || eboot_entry->directory)
         throw InstallError("\"" + name +
-            "\" has the right disc id but no PSP_GAME/SYSDIR/EBOOT.BIN. The image is "
+            "\" has the right disc id but no " + kExecutablePathOnDisc + ". The image is "
             "incomplete or modified; make it again from your disc.");
     Inspection result;
     result.eboot_bin = read_file(*iso, *eboot_entry);
-    if (psprecomp::sha256_bytes(result.eboot_bin) != kEncryptedExecutableSha256)
+    const std::string exe_sha = psprecomp::sha256_bytes(result.eboot_bin);
+    if (exe_sha != kEncryptedExecutableSha256 && exe_sha != kExecutableSha256)
         throw InstallError("\"" + name + "\" is " + kGameTitle + " (" + kDiscIdDisplay +
-            "), but its executable is not the version Yakumo supports. The image may be patched, "
+            "), but its executable is not the version supported. The image may be patched, "
             "modified or damaged; make it again from an unmodified disc.");
     result.info.size_bytes = iso->size_bytes();
     return result;

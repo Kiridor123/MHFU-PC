@@ -8,6 +8,7 @@ namespace mhfu::install {
 inline constexpr const char *kDiscId = "ULUS10391";
 inline constexpr const char *kDiscIdDisplay = "ULUS-10391";
 inline constexpr const char *kGameTitle = "Monster Hunter Freedom Unite";
+inline constexpr const char *kProjectName = "Pokke";
 
 inline constexpr const char *kExecutablePathOnDisc = "PSP_GAME/SYSDIR/BOOT.BIN";
 inline constexpr const char *kParamSfoPathOnDisc = "PSP_GAME/PARAM.SFO";
@@ -26,6 +27,7 @@ namespace mhp3rd::install {
 using mhfu::install::kDiscId;
 using mhfu::install::kDiscIdDisplay;
 using mhfu::install::kGameTitle;
+using mhfu::install::kProjectName;
 using mhfu::install::kExecutablePathOnDisc;
 using mhfu::install::kParamSfoPathOnDisc;
 using mhfu::install::kEncryptedExecutableSha256;

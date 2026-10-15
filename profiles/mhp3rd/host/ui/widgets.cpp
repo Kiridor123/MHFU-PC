@@ -736,7 +736,7 @@ void hints(std::initializer_list<Hint> list) {
                 cap("L3");
                 cap("R3");
             } else {
-                cap("Esc");
+                cap("F1");
             }
             break;
         case Control::Start:
