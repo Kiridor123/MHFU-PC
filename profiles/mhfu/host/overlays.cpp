@@ -278,6 +278,27 @@ void dump_slot(const psprecomp::GuestMemory &memory, std::uint32_t slot_start, s
               << " " << psprecomp::hex32(slot_start) << "\n";
 }
 
+void purge_slot_destructors(Runtime &runtime, std::uint32_t slot_start, std::uint32_t slot_end) {
+    if (slot_start == 0u || slot_end <= slot_start) return;
+    auto &mem = runtime.memory();
+    // Destructor list head in MHFU is at 0x09A5F250.
+    // Each node struct: { uint32_t next; uint32_t dtor; uint32_t arg; }
+    std::uint32_t prev_addr = 0x09A5F250u;
+    std::uint32_t curr = mem.load32(prev_addr);
+    std::size_t visited = 0u;
+    while (curr >= 0x08800000u && curr < 0x0A000000u && visited++ < 1000u) {
+        const std::uint32_t next = mem.load32(curr);
+        const std::uint32_t dtor = mem.load32(curr + 4u);
+        if ((curr >= slot_start && curr < slot_end) || (dtor >= slot_start && dtor < slot_end)) {
+            mem.store32(prev_addr, next);
+            curr = next;
+        } else {
+            prev_addr = curr;
+            curr = next;
+        }
+    }
+}
+
 bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
     const auto [slot_start, slot_end] = slot_of(pc);
     if (slot_start == 0u) return false;
@@ -294,6 +315,7 @@ bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
         auto &installed = installed_overlays();
         if (installed[slot_start] == corpus.hash) return false; // already installed: a real miss
         runtime.unregister_functions(slot_start, slot_end);
+        purge_slot_destructors(runtime, slot_start, slot_end);
         corpus.install(runtime);
         installed[slot_start] = corpus.hash;
         installed_headers()[slot_start] = header_hash(runtime.memory(), slot_start);
@@ -312,6 +334,7 @@ bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
 }
 
 bool missing_function_hook(Runtime &runtime, AllegrexContext &, std::uint32_t pc) {
+    revalidate_overlays(runtime);
     return install_overlay_for(runtime, pc);
 }
 
@@ -357,7 +380,9 @@ void revalidate_overlays(Runtime &runtime) {
         // A different overlay now occupies the slot: drop the stale code so the
         // next dispatch there goes through the miss hook.
         const auto [s_start, s_end] = slot_of(slot_start);
-        runtime.unregister_functions(s_start, s_end != 0u ? s_end : (corpus->base + corpus->size));
+        const std::uint32_t effective_end = s_end != 0u ? s_end : (corpus->base + corpus->size);
+        runtime.unregister_functions(s_start, effective_end);
+        purge_slot_destructors(runtime, s_start, effective_end);
         std::cout << "[overlay] " << corpus->name << " was replaced in " << psprecomp::hex32(slot_start) << "\n";
         installed_headers().erase(slot_start);
         it = installed_overlays().erase(it);

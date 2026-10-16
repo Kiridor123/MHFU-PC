@@ -1,4 +1,4 @@
-package io.github.teamgdb.yakumo;
+package io.github.teamgdb.mhfu;
 
 import android.app.AlertDialog;
 import android.content.ContentResolver;

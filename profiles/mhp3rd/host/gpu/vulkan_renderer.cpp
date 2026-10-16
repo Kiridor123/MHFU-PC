@@ -89,10 +89,10 @@ constexpr float kScreenWideDraw = 470.0f;
 // its region part way through, so all of it must fit: measured at 16.1 MiB in
 // the busiest areas found (Flooded Forest area 3, Tundra area 2), where 16 MiB
 // left the interface, drawn last, and parts of the ground out. Twice that.
-constexpr VkDeviceSize kVertexBufferBytes = 32u * 1024u * 1024u;
+constexpr VkDeviceSize kVertexBufferBytes = 64u * 1024u * 1024u;
 // Index lists of merged draws (see submit()), kept apart from the vertices so
 // that the draws of one group have consecutive indices.
-constexpr VkDeviceSize kIndexBufferBytes = 4u * 1024u * 1024u;
+constexpr VkDeviceSize kIndexBufferBytes = 16u * 1024u * 1024u;
 // Frame interpolation draws a frame again after the game has moved on, from
 // the vertices, indices and lighting blocks that frame wrote. So the vertex
 // and index buffers hold three frames' worth: the frame being drawn, the
@@ -101,7 +101,7 @@ constexpr VkDeviceSize kIndexBufferBytes = 4u * 1024u * 1024u;
 // scratch area for each of the two presents that can be in flight, for the
 // blended vertices of skinned draws and the lighting blocks of blended draws.
 constexpr std::uint32_t kFrameRegions = 3u;
-constexpr VkDeviceSize kPresentScratchBytes = 6u * 1024u * 1024u;
+constexpr VkDeviceSize kPresentScratchBytes = 12u * 1024u * 1024u;
 constexpr VkDeviceSize kVertexBufferTotal = kFrameRegions * kVertexBufferBytes + 2u * kPresentScratchBytes;
 constexpr VkDeviceSize kIndexBufferTotal = kFrameRegions * kIndexBufferBytes;
 
