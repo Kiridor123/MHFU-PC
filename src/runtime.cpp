@@ -267,8 +267,10 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
         if (function == nullptr) return false;
     }
 
+#if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     const std::uint32_t target_pc = ctx.pc;
     const std::uint32_t native_depth = chain_depth_;
+#endif
     // Always guard execution-context ownership. Even a clean generated unit can
     // reach a nested direct chain whose scheduler boundary switches PSP thread.
     // guarded every native chain frame; accidentally weakened
@@ -316,8 +318,10 @@ bool Runtime::invoke_chained_unit(
     RecompiledFunction function = generated_units_[unit_index];
     if (function == nullptr) return false;
 
+#if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     const std::uint32_t target_pc = ctx.pc;
     const std::uint32_t native_depth = chain_depth_;
+#endif
     const std::uint64_t caller_generation = g_runtime_thread_switch_generation_fast;
 #if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     if (g_pre_chained_call_hook != nullptr) g_pre_chained_call_hook(*this, ctx, target_pc, native_depth);

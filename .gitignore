@@ -12,6 +12,8 @@ cmake-build-*/
 *.dll
 *.so
 *.AppImage
+*.zip
+/Pokke-Windows-x64/
 *.lib
 *.obj
 *.exp

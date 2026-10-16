@@ -614,6 +614,26 @@ void Menu::video() {
         renderer().set_perf_overlay(perf::options().overlay);
         settings::save();
     }
+    if (button_row("Low-Spec / iGPU Preset (Max FPS)",
+            {false, {},
+                "Sets 1x native resolution (480x272), 30 FPS, UI upscaling Off, and disables HD texture packs "
+                "for maximum speed on integrated GPUs (such as Intel HD 620)."})) {
+        const auto apply = [&](const char *key, auto &value, const auto &target) {
+            if (settings::overridden_by(key) == nullptr) value = target;
+        };
+        apply("video.internal_scale", s.internal_scale, 1u);
+        apply("video.ui_textures", s.ui_textures, settings::UiTextures::Off);
+        apply("video.texture_pack", s.texture_pack, false);
+        apply("video.frame_rate", s.frame_rate, settings::FrameRate::Fps30);
+        apply("video.frame_rate_auto", s.frame_rate_auto, true);
+        apply("video.unthrottled", s.unthrottled, false);
+        apply("text.crisp", s.crisp_text, false);
+        renderer().set_internal_scale(s.internal_scale);
+        renderer().set_texture_pack(s.texture_pack);
+        renderer().set_frame_rate(s.frame_rate);
+        renderer().set_frame_rate_auto(s.frame_rate_auto);
+        settings::save();
+    }
 }
 
 void Menu::audio() {

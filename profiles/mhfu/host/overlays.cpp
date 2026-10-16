@@ -194,6 +194,22 @@ void load_overlay_library(const std::filesystem::path &path) {
         std::cerr << "[overlay] cannot load " << path_to_utf8(path.filename()) << ": " << library_error() << "\n";
         return;
     }
+    if (const auto bundle_of =
+            reinterpret_cast<decltype(&mhp3rd_overlay_bundle)>(library_symbol(handle, "mhp3rd_overlay_bundle"));
+        bundle_of != nullptr) {
+        std::size_t count = 0u;
+        const OverlayBundleEntry *entries = bundle_of(&count);
+        if (entries == nullptr) {
+            std::cerr << "[overlay] " << path_to_utf8(path.filename()) << " returned an empty bundle\n";
+            return;
+        }
+        for (std::size_t i = 0u; i < count; ++i) {
+            if (entries[i].info.abi_version != kOverlayAbiVersion || entries[i].install == nullptr) continue;
+            overlay_corpora().push_back(OverlayCorpus{entries[i].info.name, entries[i].info.base, entries[i].info.size,
+                entries[i].info.code_size, entries[i].info.hash, entries[i].install});
+        }
+        return;
+    }
     const auto info_of =
         reinterpret_cast<decltype(&mhp3rd_overlay_info)>(library_symbol(handle, "mhp3rd_overlay_info"));
     const auto install =

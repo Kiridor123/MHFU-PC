@@ -3,6 +3,16 @@ cmake_minimum_required(VERSION 3.20)
 set(MHFU_PROFILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 message(STATUS "Configuring Monster Hunter Freedom Unite profile (ULUS-10391)")
 
+option(MHFU_AVX2 "Enable AVX2, FMA and BMI instruction sets on x86_64" ON)
+set(MHFU_ARCH_OPTIONS "")
+if(MHFU_AVX2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+    if(MSVC)
+        set(MHFU_ARCH_OPTIONS "/arch:AVX2")
+    else()
+        set(MHFU_ARCH_OPTIONS "-mavx2;-mfma;-mbmi;-mbmi2;-mlzcnt;-mpopcnt")
+    endif()
+endif()
+
 # The AOT corpus is derived from the user's executable and is not committed.
 file(GLOB MHFU_GENERATED CONFIGURE_DEPENDS "${MHFU_PROFILE_DIR}/generated/*.cpp")
 
@@ -10,9 +20,9 @@ if(MHFU_GENERATED)
     list(LENGTH MHFU_GENERATED MHFU_GENERATED_COUNT)
     message(STATUS "mhfu: ${MHFU_GENERATED_COUNT} generated AOT units found")
     if(MSVC)
-        set(MHFU_GENERATED_OPTIONS "/O${PSPRECOMP_GENERATED_OPT_LEVEL};/bigobj")
+        set(MHFU_GENERATED_OPTIONS "/O${PSPRECOMP_GENERATED_OPT_LEVEL};/bigobj;${MHFU_ARCH_OPTIONS}")
     else()
-        set(MHFU_GENERATED_OPTIONS "-O${PSPRECOMP_GENERATED_OPT_LEVEL};-g0")
+        set(MHFU_GENERATED_OPTIONS "-O${PSPRECOMP_GENERATED_OPT_LEVEL};-g0;${MHFU_ARCH_OPTIONS}")
     endif()
     set_source_files_properties(${MHFU_GENERATED} PROPERTIES COMPILE_OPTIONS "${MHFU_GENERATED_OPTIONS}")
     add_library(mhfu_generated OBJECT ${MHFU_GENERATED})
@@ -253,14 +263,23 @@ target_link_libraries(MHFU PRIVATE
     ${CMAKE_DL_LIBS}
 )
 
+if(MHFU_ARCH_OPTIONS)
+    target_compile_options(MHFU PRIVATE ${MHFU_ARCH_OPTIONS})
+endif()
+
 if(WIN32)
     set(MHP3RD_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/packaging/windows/emblem.ico")
     configure_file("${PROJECT_SOURCE_DIR}/profiles/mhp3rd/packaging/windows/Yakumo.rc.in"
                    "${CMAKE_CURRENT_BINARY_DIR}/Pokke.rc" @ONLY)
     target_sources(MHFU PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Pokke.rc")
     target_link_libraries(MHFU PRIVATE ws2_32 iphlpapi shell32)
-    if(MINGW)
-        target_link_options(MHFU PRIVATE "-Wl,--out-implib,${CMAKE_CURRENT_BINARY_DIR}/libPokke.dll.a" "-Wl,--export-all-symbols")
+    if(MSVC)
+        target_link_options(MHFU PRIVATE /STACK:67108864)
+    elseif(MINGW)
+        target_link_options(MHFU PRIVATE
+            "-Wl,--stack,67108864"
+            "-Wl,--out-implib,${CMAKE_CURRENT_BINARY_DIR}/libPokke.dll.a"
+            "-Wl,--export-all-symbols")
     endif()
 endif()
 
@@ -288,6 +307,41 @@ set_target_properties(MHFU PROPERTIES
 )
 
 set(MHFU_OVERLAY_DIR "${CMAKE_BINARY_DIR}/bin/overlays")
+
+function(mhfu_configure_overlay_target target MHP3RD_OVERLAY_PREFIX source_dir)
+    target_include_directories(${target} PRIVATE
+        "${source_dir}"
+        "${MHFU_PROFILE_DIR}/host"
+        "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host"
+        "${PROJECT_SOURCE_DIR}/include")
+    if(WIN32 OR APPLE)
+        target_link_libraries(${target} PRIVATE MHFU)
+    else()
+        add_dependencies(${target} MHFU)
+    endif()
+    if(MSVC)
+        target_compile_definitions(${target} PRIVATE PSPRECOMP_IMPORT_HOST_SYMBOLS=1)
+        if(PSPRECOMP_GENERATED_OPT_LEVEL STREQUAL "0")
+            target_compile_options(${target} PRIVATE /Od /bigobj ${MHFU_ARCH_OPTIONS})
+        else()
+            target_compile_options(${target} PRIVATE /O${PSPRECOMP_GENERATED_OPT_LEVEL} /Ob0 /bigobj ${MHFU_ARCH_OPTIONS})
+        endif()
+    else()
+        target_compile_options(${target} PRIVATE -O${PSPRECOMP_GENERATED_OPT_LEVEL} -g0 ${MHFU_ARCH_OPTIONS})
+    endif()
+    if(MHFU_RELEASE_LINK_OPTIONS)
+        target_link_options(${target} PRIVATE ${MHFU_RELEASE_LINK_OPTIONS})
+    endif()
+    set_target_properties(${target} PROPERTIES
+        JOB_POOL_COMPILE psprecomp_generated
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+        PREFIX ""
+        SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}"
+        OUTPUT_NAME "${MHP3RD_OVERLAY_PREFIX}"
+        LIBRARY_OUTPUT_DIRECTORY "${MHFU_OVERLAY_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${MHFU_OVERLAY_DIR}")
+endfunction()
 
 function(mhfu_add_overlay meta_path)
     get_filename_component(source_dir "${meta_path}" DIRECTORY)
@@ -317,43 +371,32 @@ function(mhfu_add_overlay meta_path)
 
     set(target "overlay_${MHP3RD_OVERLAY_PREFIX}")
     add_library(${target} MODULE ${sources} "${entry_point}")
-    target_include_directories(${target} PRIVATE
-        "${source_dir}"
-        "${MHFU_PROFILE_DIR}/host"
-        "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host"
-        "${PROJECT_SOURCE_DIR}/include")
-    if(WIN32 OR APPLE)
-        target_link_libraries(${target} PRIVATE MHFU)
-    else()
-        add_dependencies(${target} MHFU)
+    mhfu_configure_overlay_target(${target} "${MHP3RD_OVERLAY_PREFIX}" "${source_dir}")
+endfunction()
+
+function(mhfu_add_overlay_bundle bundle_path)
+    get_filename_component(source_dir "${bundle_path}" DIRECTORY)
+    get_filename_component(MHP3RD_OVERLAY_PREFIX "${source_dir}" NAME)
+    file(GLOB sources CONFIGURE_DEPENDS "${source_dir}/*.cpp")
+    if(NOT sources)
+        message(WARNING "mhfu: no sources for overlay bundle ${MHP3RD_OVERLAY_PREFIX}")
+        return()
     endif()
-    if(MSVC)
-        target_compile_definitions(${target} PRIVATE PSPRECOMP_IMPORT_HOST_SYMBOLS=1)
-        if(PSPRECOMP_GENERATED_OPT_LEVEL STREQUAL "0")
-            target_compile_options(${target} PRIVATE /Od /bigobj)
-        else()
-            target_compile_options(${target} PRIVATE /O${PSPRECOMP_GENERATED_OPT_LEVEL} /Ob0 /bigobj)
-        endif()
-    else()
-        target_compile_options(${target} PRIVATE -O${PSPRECOMP_GENERATED_OPT_LEVEL} -g0)
-    endif()
-    if(MHFU_RELEASE_LINK_OPTIONS)
-        target_link_options(${target} PRIVATE ${MHFU_RELEASE_LINK_OPTIONS})
-    endif()
-    set_target_properties(${target} PROPERTIES
-        JOB_POOL_COMPILE psprecomp_generated
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
-        PREFIX ""
-        SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}"
-        OUTPUT_NAME "${MHP3RD_OVERLAY_PREFIX}"
-        LIBRARY_OUTPUT_DIRECTORY "${MHFU_OVERLAY_DIR}")
+    set(target "overlay_${MHP3RD_OVERLAY_PREFIX}")
+    add_library(${target} MODULE ${sources})
+    mhfu_configure_overlay_target(${target} "${MHP3RD_OVERLAY_PREFIX}" "${source_dir}")
 endfunction()
 
 file(GLOB MHFU_OVERLAY_METADATA CONFIGURE_DEPENDS "${MHFU_PROFILE_DIR}/overlays/*/meta.txt")
 foreach(meta IN LISTS MHFU_OVERLAY_METADATA)
     mhfu_add_overlay("${meta}")
 endforeach()
+file(GLOB MHFU_OVERLAY_BUNDLES CONFIGURE_DEPENDS "${MHFU_PROFILE_DIR}/overlays/*/bundle.txt")
+foreach(bundle IN LISTS MHFU_OVERLAY_BUNDLES)
+    mhfu_add_overlay_bundle("${bundle}")
+endforeach()
 list(LENGTH MHFU_OVERLAY_METADATA MHFU_OVERLAY_COUNT)
-message(STATUS "mhfu: ${MHFU_OVERLAY_COUNT} overlay librar(ies) in ${MHFU_OVERLAY_DIR}")
+list(LENGTH MHFU_OVERLAY_BUNDLES MHFU_BUNDLE_COUNT)
+math(EXPR MHFU_TOTAL_OVERLAY_LIBS "${MHFU_OVERLAY_COUNT} + ${MHFU_BUNDLE_COUNT}")
+message(STATUS "mhfu: ${MHFU_TOTAL_OVERLAY_LIBS} overlay librar(ies) in ${MHFU_OVERLAY_DIR}")
 

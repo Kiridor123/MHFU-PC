@@ -1,0 +1,23 @@
+# CMake toolchain file for cross-compiling to Windows x86_64 using MinGW-w64
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
+
+if(DEFINED ENV{MINGW_PREFIX})
+    set(TOOLCHAIN_PREFIX "$ENV{MINGW_PREFIX}")
+elseif(EXISTS "/home/linuxbrew/.linuxbrew/bin/x86_64-w64-mingw32-gcc")
+    set(TOOLCHAIN_PREFIX "/home/linuxbrew/.linuxbrew/bin/x86_64-w64-mingw32-")
+else()
+    set(TOOLCHAIN_PREFIX "x86_64-w64-mingw32-")
+endif()
+
+set(CMAKE_C_COMPILER "${TOOLCHAIN_PREFIX}gcc")
+set(CMAKE_CXX_COMPILER "${TOOLCHAIN_PREFIX}g++")
+set(CMAKE_RC_COMPILER "${TOOLCHAIN_PREFIX}windres")
+set(CMAKE_AR "${TOOLCHAIN_PREFIX}ar" CACHE FILEPATH "Archiver")
+set(CMAKE_RANLIB "${TOOLCHAIN_PREFIX}ranlib" CACHE FILEPATH "Ranlib")
+set(CMAKE_STRIP "${TOOLCHAIN_PREFIX}strip" CACHE FILEPATH "Strip")
+
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)

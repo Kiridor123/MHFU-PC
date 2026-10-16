@@ -78,7 +78,10 @@ cmake -S "$repo_dir" -B "$build" -G Ninja \
     -DMHP3RD_FFMPEG=bundled \
     -DMHP3RD_FFMPEG_DOWNLOAD_DIR="$sources" \
     -DCMAKE_PREFIX_PATH="$deps" \
-    -DPSPRECOMP_GENERATED_JOBS="$jobs"
+    -DPSPRECOMP_GENERATED_JOBS="$jobs" \
+    -DPSPRECOMP_AOT_ASSUME_NO_WRITE_WATCH=ON \
+    -DPSPRECOMP_AOT_PRODUCTION_FASTPATHS=ON \
+    -DPSPRECOMP_BUILD_TESTS=OFF
 
 step "Building static recompiler tools (psp_analyze, psp_recomp)"
 cmake --build "$build" -j "$jobs" --target psp_analyze psp_recomp

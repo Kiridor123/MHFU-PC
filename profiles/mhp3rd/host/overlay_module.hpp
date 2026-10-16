@@ -8,6 +8,7 @@
 // them, so a library only ever matches the build it was produced with. The ABI
 // version below guards the metadata layout; nothing else is checked.
 
+#include <cstddef>
 #include <cstdint>
 
 namespace psprecomp {
@@ -36,6 +37,11 @@ struct OverlayModuleInfo {
     const char *name;
 };
 
+struct OverlayBundleEntry {
+    OverlayModuleInfo info;
+    void (*install)(psprecomp::Runtime &runtime);
+};
+
 } // namespace mhp3rd
 
 // Only the library defines these; the host resolves them by name and uses the
@@ -53,4 +59,5 @@ struct OverlayModuleInfo {
 extern "C" {
 MHP3RD_OVERLAY_EXPORT const mhp3rd::OverlayModuleInfo *mhp3rd_overlay_info();
 MHP3RD_OVERLAY_EXPORT void mhp3rd_register_overlay(psprecomp::Runtime &runtime);
+MHP3RD_OVERLAY_EXPORT const mhp3rd::OverlayBundleEntry *mhp3rd_overlay_bundle(std::size_t *count);
 }

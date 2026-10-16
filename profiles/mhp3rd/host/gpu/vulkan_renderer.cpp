@@ -2127,6 +2127,20 @@ struct VulkanRenderer::Impl {
     [[nodiscard]] std::uint32_t find_memory_type(std::uint32_t mask, VkMemoryPropertyFlags properties) const {
         VkPhysicalDeviceMemoryProperties memory_properties{};
         vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+        if ((properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u &&
+            std::getenv("MHP3RD_UNCACHED_VERTEX_BUFFER") == nullptr) {
+            const VkMemoryPropertyFlags cached_local =
+                properties | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+            for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+                if ((mask & (1u << i)) != 0u &&
+                    (memory_properties.memoryTypes[i].propertyFlags & cached_local) == cached_local)
+                    return i;
+            }
+        }
+        const VkMemoryPropertyFlags local = properties | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+            if ((mask & (1u << i)) != 0u && (memory_properties.memoryTypes[i].propertyFlags & local) == local) return i;
+        }
         for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
             if ((mask & (1u << i)) != 0u && (memory_properties.memoryTypes[i].propertyFlags & properties) == properties)
                 return i;
@@ -2650,9 +2664,15 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     // Out-of-range buffer reads (a vertex, an index, the raw vertex bytes the
     // vertex shader reads, a uniform) return zeros or stay within the buffer
     // instead of reading whatever memory follows it, which on some GPUs can
-    // fault or hang. MHP3RD_NO_ROBUST_BUFFERS leaves it off, as before.
-    if (supported_features.robustBufferAccess == VK_TRUE && std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr &&
-        !impl.gpu_compat)
+    // fault or hang. On integrated GPUs (e.g. Intel HD 620), robustBufferAccess
+    // adds bounds-checking instructions to every SSBO vertex load, so leave it
+    // off there unless MHP3RD_ROBUST_BUFFERS is set.
+    VkPhysicalDeviceProperties robust_props{};
+    vkGetPhysicalDeviceProperties(impl.physical_device, &robust_props);
+    const bool is_igpu = robust_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+    const bool want_robust = is_igpu ? (std::getenv("MHP3RD_ROBUST_BUFFERS") != nullptr)
+                                     : (std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr);
+    if (supported_features.robustBufferAccess == VK_TRUE && want_robust && !impl.gpu_compat)
         enabled_features.robustBufferAccess = VK_TRUE;
     impl.robust_buffers = enabled_features.robustBufferAccess == VK_TRUE;
     std::cout << "[render] robust buffer access " << (impl.robust_buffers ? "on" : "off") << "\n";
