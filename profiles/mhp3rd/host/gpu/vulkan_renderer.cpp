@@ -89,10 +89,10 @@ constexpr float kScreenWideDraw = 470.0f;
 // its region part way through, so all of it must fit: measured at 16.1 MiB in
 // the busiest areas found (Flooded Forest area 3, Tundra area 2), where 16 MiB
 // left the interface, drawn last, and parts of the ground out. Twice that.
-constexpr VkDeviceSize kVertexBufferBytes = 64u * 1024u * 1024u;
+constexpr VkDeviceSize kVertexBufferBytes = 160u * 1024u * 1024u;
 // Index lists of merged draws (see submit()), kept apart from the vertices so
 // that the draws of one group have consecutive indices.
-constexpr VkDeviceSize kIndexBufferBytes = 16u * 1024u * 1024u;
+constexpr VkDeviceSize kIndexBufferBytes = 32u * 1024u * 1024u;
 // Frame interpolation draws a frame again after the game has moved on, from
 // the vertices, indices and lighting blocks that frame wrote. So the vertex
 // and index buffers hold three frames' worth: the frame being drawn, the
@@ -101,18 +101,24 @@ constexpr VkDeviceSize kIndexBufferBytes = 16u * 1024u * 1024u;
 // scratch area for each of the two presents that can be in flight, for the
 // blended vertices of skinned draws and the lighting blocks of blended draws.
 constexpr std::uint32_t kFrameRegions = 3u;
-constexpr VkDeviceSize kPresentScratchBytes = 12u * 1024u * 1024u;
+constexpr VkDeviceSize kPresentScratchBytes = 24u * 1024u * 1024u;
 constexpr VkDeviceSize kVertexBufferTotal = kFrameRegions * kVertexBufferBytes + 2u * kPresentScratchBytes;
 constexpr VkDeviceSize kIndexBufferTotal = kFrameRegions * kIndexBufferBytes;
 
 // Says, once in a while, that a frame's geometry did not fit and some of its
 // draws were left out, instead of dropping them silently.
-void report_frame_space_full(const char *what) {
+void report_frame_space_full(
+    const char *what, VkDeviceSize current = 0, VkDeviceSize needed = 0, VkDeviceSize limit = 0) {
     static std::uint64_t count = 0;
-    if (count++ % 600u == 0u)
+    if (count++ % 600u == 0u) {
         std::cout << "[render] a frame ran out of " << what << " space; the draws past it are not drawn (" << count
-                  << " so far)\n"
-                  << std::flush;
+                  << " so far)";
+        if (limit > 0) {
+            std::cout << " [used " << (current >> 20u) << " MiB, needed " << (needed >> 10u) << " KiB, limit "
+                      << (limit >> 20u) << " MiB]";
+        }
+        std::cout << "\n" << std::flush;
+    }
 }
 constexpr std::size_t kMaxCachedTextures = 1024u;
 // Descriptor sets for sampling render targets as textures: two per target
@@ -1658,7 +1664,7 @@ struct VulkanRenderer::Impl {
     bool write_uniform(const void *data, std::size_t size, std::uint32_t &offset) {
         const VkDeviceSize at = (vertex_offset + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
         if (at + size > vertex_limit) {
-            report_frame_space_full("vertex");
+            report_frame_space_full("vertex", at, size, vertex_limit);
             return false;
         }
         std::memcpy(static_cast<std::uint8_t *>(vertex_mapped) + at, data, size);
@@ -2153,7 +2159,8 @@ struct VulkanRenderer::Impl {
         scan_gamepads();
     }
 
-    [[nodiscard]] std::uint32_t find_memory_type(std::uint32_t mask, VkMemoryPropertyFlags properties) const {
+    [[nodiscard]] std::uint32_t find_memory_type(
+        std::uint32_t mask, VkMemoryPropertyFlags properties, VkDeviceSize min_size = 0) const {
         VkPhysicalDeviceMemoryProperties memory_properties{};
         vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
         if ((properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u &&
@@ -2162,16 +2169,23 @@ struct VulkanRenderer::Impl {
                 properties | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
             for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
                 if ((mask & (1u << i)) != 0u &&
-                    (memory_properties.memoryTypes[i].propertyFlags & cached_local) == cached_local)
+                    (memory_properties.memoryTypes[i].propertyFlags & cached_local) == cached_local &&
+                    (min_size == 0 ||
+                        memory_properties.memoryHeaps[memory_properties.memoryTypes[i].heapIndex].size >= min_size))
                     return i;
             }
         }
         const VkMemoryPropertyFlags local = properties | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
         for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
-            if ((mask & (1u << i)) != 0u && (memory_properties.memoryTypes[i].propertyFlags & local) == local) return i;
+            if ((mask & (1u << i)) != 0u && (memory_properties.memoryTypes[i].propertyFlags & local) == local &&
+                (min_size == 0 ||
+                    memory_properties.memoryHeaps[memory_properties.memoryTypes[i].heapIndex].size >= min_size))
+                return i;
         }
         for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
-            if ((mask & (1u << i)) != 0u && (memory_properties.memoryTypes[i].propertyFlags & properties) == properties)
+            if ((mask & (1u << i)) != 0u && (memory_properties.memoryTypes[i].propertyFlags & properties) == properties &&
+                (min_size == 0 ||
+                    memory_properties.memoryHeaps[memory_properties.memoryTypes[i].heapIndex].size >= min_size))
                 return i;
         }
         return 0u;
@@ -3011,8 +3025,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     vkGetBufferMemoryRequirements(impl.device, impl.vertex_buffer, &requirements);
     VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocate.allocationSize = requirements.size;
-    allocate.memoryTypeIndex = impl.find_memory_type(
-        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    allocate.memoryTypeIndex = impl.find_memory_type(requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, requirements.size);
     if (!check(vkAllocateMemory(impl.device, &allocate, nullptr, &impl.vertex_memory), "vkAllocateMemory", error))
         return false;
     vkBindBufferMemory(impl.device, impl.vertex_buffer, impl.vertex_memory, 0u);
@@ -3024,8 +3038,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         return false;
     vkGetBufferMemoryRequirements(impl.device, impl.index_buffer, &requirements);
     allocate.allocationSize = requirements.size;
-    allocate.memoryTypeIndex = impl.find_memory_type(
-        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    allocate.memoryTypeIndex = impl.find_memory_type(requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, requirements.size);
     if (!check(vkAllocateMemory(impl.device, &allocate, nullptr, &impl.index_memory), "vkAllocateMemory", error))
         return false;
     vkBindBufferMemory(impl.device, impl.index_buffer, impl.index_memory, 0u);
@@ -3164,7 +3178,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         VkMemoryRequirements vertex_requirements{};
         vkGetBufferMemoryRequirements(impl.device, impl.vertex_buffer, &vertex_requirements);
         const std::uint32_t vertex_type = impl.find_memory_type(vertex_requirements.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertex_requirements.size);
         const VkMemoryPropertyFlags flags = memory.memoryTypes[vertex_type].propertyFlags;
         std::cout << "[render] Vulkan " << VK_API_VERSION_MAJOR(properties.apiVersion) << "."
                   << VK_API_VERSION_MINOR(properties.apiVersion) << "." << VK_API_VERSION_PATCH(properties.apiVersion)
@@ -7472,11 +7486,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         index_start = (vertex_end + 3u) & ~VkDeviceSize{3u};
         draw_end = merge ? vertex_end : index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
         if (draw_end > impl.vertex_limit) {
-            report_frame_space_full("vertex");
+            report_frame_space_full("vertex", vertex_start, draw_end - vertex_start, impl.vertex_limit);
             return;
         }
         if (merge && impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit) {
-            report_frame_space_full("index");
+            report_frame_space_full(
+                "index", impl.index_offset, 4u + impl.direct_indices.size() * sizeof(std::uint16_t), impl.index_limit);
             return;
         }
         auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
@@ -7496,7 +7511,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     } else {
         const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
         if (impl.vertex_offset + bytes > impl.vertex_limit) {
-            report_frame_space_full("vertex");
+            report_frame_space_full("vertex", impl.vertex_offset, bytes, impl.vertex_limit);
             return;
         }
         std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
