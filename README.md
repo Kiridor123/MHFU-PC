@@ -98,32 +98,48 @@ Pokke.exe --install "C:/Juegos/MHFU.iso" --in-place
 
 ## Compilación desde el Código Fuente
 
-### Requisitos (Windows con MSYS2 UCRT64):
+### En Linux (Bazzite / SteamOS / Fedora / Ubuntu / Arch — Generación de AppImage):
+En distribuciones inmutables como **Bazzite** o **SteamOS** (o cualquier distribución con `podman` o `docker`), el proyecto incluye un constructor automático que compila todo dentro del contenedor oficial **Steam Runtime 3 SDK** y empaqueta un **`Pokke-x86_64.AppImage`** autocontenido (con SDL3, FFmpeg LGPL y los 14 overlays compilados nativamente):
+
+```bash
+# Generar Pokke-x86_64.AppImage en un solo paso (usa Podman/Docker automáticamente):
+./profiles/mhfu/scripts/build_appimage.sh --iso "/ruta/a/Monster Hunter Freedom Unite.iso"
+
+# Ejecutar el AppImage resultante (o usar ./Jugar_MHFU.sh):
+./Pokke-x86_64.AppImage
+```
+
+Si prefieres compilar directamente en tu sistema Linux anfitrión (con `gcc`/`clang`, `cmake`, `ninja`, `glslangValidator`, `libsdl3-dev` y `libvulkan-dev` instalados):
+```bash
+./profiles/mhfu/scripts/build_appimage.sh --host --iso "/ruta/a/Monster Hunter Freedom Unite.iso"
+```
+
+### En Windows (con MSYS2 UCRT64):
 - **Compilador C++20**: GCC 14+ / Clang 17+ (`mingw-w64-ucrt-x86_64-gcc`)
 - **Herramientas de construcción**: CMake 3.25+ y Ninja (`mingw-w64-ucrt-x86_64-cmake`, `mingw-w64-ucrt-x86_64-ninja`)
 - **Bibliotecas**: SDL3, Vulkan Loader & Headers, Glslang (`mingw-w64-ucrt-x86_64-sdl3`, `mingw-w64-ucrt-x86_64-vulkan-loader`, `mingw-w64-ucrt-x86_64-vulkan-headers`, `mingw-w64-ucrt-x86_64-glslang`)
 - **Python 3.10+**
 
-### Instrucciones de Compilación:
+### Instrucciones Manuales Paso a Paso:
 ```bash
 # 1. Clonar el repositorio
 git clone https://github.com/Kiridor123/MHFU-PC.git
 cd MHFU-PC
 
 # 2. Preparar el juego con tu copia legal de MHFU
-python profiles/mhfu/scripts/prepare_game.py "Monster Hunter Freedom Unite.iso"
+python3 profiles/mhfu/scripts/prepare_game.py "Monster Hunter Freedom Unite.iso"
 
 # 3. Generar el código C++ recompilado (AOT)
-python profiles/mhfu/scripts/generate.py
+python3 profiles/mhfu/scripts/generate.py
 
 # 4. Compilar los overlays de juego dinámicos
-python profiles/mhfu/scripts/build_mode_overlays.py
+python3 profiles/mhfu/scripts/build_mode_overlays.py
 
-# 5. Configurar y compilar Pokke.exe
+# 5. Configurar y compilar Pokke
 cmake -B out/mhfu -S . -G Ninja -DPSPRECOMP_PROFILE=mhfu
 cmake --build out/mhfu --target Pokke
 
-# El ejecutable Pokke.exe estará listo en out/mhfu/bin/Pokke.exe
+# El ejecutable estará listo en out/mhfu/bin/Pokke (Linux) o out/mhfu/bin/Pokke.exe (Windows)
 ```
 
 ---

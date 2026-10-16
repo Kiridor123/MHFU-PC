@@ -14,9 +14,9 @@ Basado y logrado gracias al proyecto **[Yakumo](https://github.com/TeamGDB/Yakum
 
 ## Ejecutable del Port
 
-- **Nombre:** `Pokke.exe`
-- **Directorio de salida:** `out/mhfu/bin/Pokke.exe`
-- **Launcher / Asistente Gráfico:** Se abre en el primer inicio o con `Pokke.exe --launcher`
+- **Nombre:** `Pokke` (`Pokke-x86_64.AppImage` en Linux / `Pokke.exe` en Windows)
+- **Directorio de salida:** `Pokke-x86_64.AppImage` o `out/mhfu/bin/Pokke`
+- **Launcher / Asistente Gráfico:** Se abre en el primer inicio o con `Pokke --launcher`
 - **Menú de configuración en tiempo real:** Tecla **`F1`** o `Esc`
 - **Controles de cámara:** Joystick derecho emula la cruceta D-Pad para rotación suave en 360 grados sin claw grip.
 - **Tasa de fotogramas:** 30, 45, 60, 90, 120 FPS o Match Display con interpolación de sub-cuadros.
@@ -26,7 +26,7 @@ Basado y logrado gracias al proyecto **[Yakumo](https://github.com/TeamGDB/Yakum
 
 | Slot | Módulos Principales | Estado |
 | :--- | :--- | :--- |
-| `0x09A5F300` | `game_task`, `lobby_task`, `download_task`, `gallery_task`, `option_task`, `edit_task`, `arcade_task`, `cont_task`, `demo_task`, `install_task`, `movie_task`, `show_select_task` | Compilados nativos (DLL) |
-| `0x09C19100` | `game_sub`, `demo_sub` | Compilados nativos (DLL) |
+| `0x09A5F300` | `game_task`, `lobby_task`, `download_task`, `gallery_task`, `option_task`, `edit_task`, `arcade_task`, `cont_task`, `demo_task`, `install_task`, `movie_task`, `show_select_task` | Compilados nativos (`.so` / `.dll`) |
+| `0x09C19100` | `game_sub`, `demo_sub` | Compilados nativos (`.so` / `.dll`) |
 
 Consulte el [README principal](../../README.md) para detalles completos de uso y compilación.

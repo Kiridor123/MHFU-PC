@@ -506,6 +506,9 @@ int restart_for_setup(const char *program) {
     (void)result;
 #else
     unsetenv("MHP3RD_GAME_DIR");
+    unsetenv("MHFU_GAME_DIR");
+    const std::filesystem::path self = executable_path();
+    if (!self.empty()) execl(self.c_str(), self.c_str(), "--install", static_cast<char *>(nullptr));
     execlp(program, program, "--install", static_cast<char *>(nullptr));
 #endif
     std::cerr << "Cannot restart " << program << " for the setup; start it with --install\n";

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MHFU
+GenericName=Monster Hunter Freedom Unite
+Comment=Native PC port of Monster Hunter Freedom Unite (ULUS-10391)
+Exec=Pokke
+Icon=Pokke
+Terminal=false
+Categories=Game;ActionGame;RolePlaying;
+StartupWMClass=MHFU

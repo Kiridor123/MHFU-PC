@@ -85,7 +85,7 @@ struct CameraReading {
 };
 
 struct RendererConfig {
-    std::string title{"Yakumo"};
+    std::string title{"MHFU"};
 };
 
 // Vulkan backend for the GE. Draw calls are rendered into an offscreen target

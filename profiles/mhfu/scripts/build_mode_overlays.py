@@ -30,10 +30,18 @@ OVERLAYS = [
 ]
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("build_dir", nargs="?", default=BUILD_DIR, help="CMake build directory (default: out/mhfu)")
+    parser.add_argument("-j", "--jobs", type=int, default=2, help="Parallel build jobs (default: 2)")
+    parser.add_argument("--no-build", action="store_true", help="Only extract and recompile overlays to C++; do not run CMake build")
+    args = parser.parse_args()
+
+    build_dir = os.path.abspath(args.build_dir)
     iso_path = os.path.join(PROFILE_DIR, "game", "disc.iso")
     if not os.path.exists(iso_path):
         iso_path = os.path.join(PROJECT_DIR, "Monster Hunter Freedom Unite.iso")
-    
+
     print(f"[*] Extracting {len(OVERLAYS)} core mode overlays from {iso_path}...")
     os.makedirs(EXTRACT_DIR, exist_ok=True)
     indices = [str(item[0]) for item in OVERLAYS]
@@ -47,22 +55,34 @@ def main():
     ], check=True)
 
     print("[*] Recompiling overlays to native C++ with psp_recomp...")
+    targets = []
     for idx, filename, base in OVERLAYS:
         dump_path = os.path.join(EXTRACT_DIR, filename)
         print(f" -> Recompiling {filename} at {base}...")
-        subprocess.run([
+        res = subprocess.run([
             sys.executable,
             os.path.join(TOOLS_DIR, "add_overlay.py"),
             "--no-build",
-            BUILD_DIR,
+            build_dir,
             dump_path,
             base
-        ], check=True)
+        ], check=True, capture_output=True, text=True)
+        for line in res.stdout.splitlines():
+            if line.startswith("target: "):
+                targets.append(line.split("target: ", 1)[1].strip())
 
-    print("[*] Re-running CMake and building all overlay DLLs...")
-    subprocess.run(["cmake", "-B", BUILD_DIR, "-S", "."], cwd=PROJECT_DIR, check=True)
-    subprocess.run(["cmake", "--build", BUILD_DIR], cwd=PROJECT_DIR, check=True)
-    print("[+] All mode overlays successfully built and deployed to out/mhfu/bin/overlays/!")
+    if args.no_build:
+        print(f"[+] Recompiled {len(targets)} overlays into profiles/mhfu/overlays/")
+        return 0
+
+    print(f"[*] Re-running CMake and building {len(targets)} overlay modules in {build_dir}...")
+    subprocess.run(["cmake", "-B", build_dir, "-S", "."], cwd=PROJECT_DIR, check=True)
+    build_cmd = ["cmake", "--build", build_dir, "-j", str(args.jobs)]
+    if targets:
+        build_cmd.extend(["--target", *targets])
+    subprocess.run(build_cmd, cwd=PROJECT_DIR, check=True)
+    print(f"[+] All mode overlays successfully built and deployed to {os.path.join(build_dir, 'bin', 'overlays')}!")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

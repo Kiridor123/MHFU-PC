@@ -1,0 +1,8 @@
+#!/bin/sh
+# AppRun entry point for Pokke AppImage
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Recompiled MIPS AOT code nests native frames deeply; raise main thread stack to 64 MiB.
+ulimit -s 65536 2>/dev/null || true
+
+exec "$HERE/usr/bin/Pokke" "$@"

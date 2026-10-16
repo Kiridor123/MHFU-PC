@@ -107,8 +107,13 @@ const DataDirectory &data_directory() {
         const std::optional<std::string> portable_env = environment_utf8("MHP3RD_PORTABLE");
         const bool env_on = portable_env == "1";
         const bool env_off = portable_env == "0";
+        std::filesystem::path portable_base = executable_directory();
+#if defined(__linux__)
+        if (const std::filesystem::path appimage = environment_path("APPIMAGE"); !appimage.empty())
+            portable_base = appimage.parent_path();
+#endif
         const std::filesystem::path portable =
-            portable_data_directory(executable_directory(), portable_requested() || env_on, env_off);
+            portable_data_directory(portable_base, portable_requested() || env_on, env_off);
         if (!portable.empty()) {
             result.path = portable;
             result.source = DataSource::Portable;

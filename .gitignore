@@ -10,6 +10,8 @@ cmake-build-*/
 # Binary build artifacts, wherever they land
 *.exe
 *.dll
+*.so
+*.AppImage
 *.lib
 *.obj
 *.exp

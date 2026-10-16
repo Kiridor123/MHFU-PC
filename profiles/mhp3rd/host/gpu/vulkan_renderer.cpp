@@ -14,6 +14,7 @@
 #include "texture_pack_import.hpp"
 #include "descriptor_pools.hpp"
 #include "device_report.hpp"
+#include "mhfu_window_icon.inc"
 
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
@@ -2461,6 +2462,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (const char *async = std::getenv("MHP3RD_MOLTENVK_ASYNC_SUBMITS"); async != nullptr && *async == '1')
         setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 0);
 #endif
+    SDL_SetAppMetadata(config.title.c_str(), "0.1.0", "MHFU");
+    SDL_SetHint(SDL_HINT_APP_NAME, config.title.c_str());
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         error = std::string("SDL_Init failed: ") + SDL_GetError();
         return false;
@@ -2491,6 +2494,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         error = std::string("SDL_CreateWindow failed: ") + SDL_GetError();
         return false;
     }
+    if (SDL_Surface *icon = SDL_CreateSurfaceFrom(kMhfuWindowIconWidth, kMhfuWindowIconHeight,
+            SDL_PIXELFORMAT_RGBA32, const_cast<unsigned char *>(kMhfuWindowIconRgba),
+            kMhfuWindowIconWidth * 4)) {
+        SDL_SetWindowIcon(impl.window, icon);
+        SDL_DestroySurface(icon);
+    }
     audio::AudioSink::instance().set_window_focused((SDL_GetWindowFlags(impl.window) & SDL_WINDOW_INPUT_FOCUS) != 0u);
 
     std::uint32_t extension_count = 0u;
@@ -2509,7 +2518,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (portability_enumeration) extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    application.pApplicationName = "Yakumo";
+    application.pApplicationName = config.title.c_str();
     application.apiVersion = VK_API_VERSION_1_1;
     VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pApplicationInfo = &application;

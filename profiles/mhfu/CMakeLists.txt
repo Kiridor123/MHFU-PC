@@ -10,9 +10,9 @@ if(MHFU_GENERATED)
     list(LENGTH MHFU_GENERATED MHFU_GENERATED_COUNT)
     message(STATUS "mhfu: ${MHFU_GENERATED_COUNT} generated AOT units found")
     if(MSVC)
-        set(MHFU_GENERATED_OPTIONS "/O2;/bigobj")
+        set(MHFU_GENERATED_OPTIONS "/O${PSPRECOMP_GENERATED_OPT_LEVEL};/bigobj")
     else()
-        set(MHFU_GENERATED_OPTIONS "-O2;-g0")
+        set(MHFU_GENERATED_OPTIONS "-O${PSPRECOMP_GENERATED_OPT_LEVEL};-g0")
     endif()
     set_source_files_properties(${MHFU_GENERATED} PROPERTIES COMPILE_OPTIONS "${MHFU_GENERATED_OPTIONS}")
     add_library(mhfu_generated OBJECT ${MHFU_GENERATED})
@@ -20,6 +20,7 @@ if(MHFU_GENERATED)
         "${PROJECT_SOURCE_DIR}/include"
         "${MHFU_PROFILE_DIR}/generated")
     set_target_properties(mhfu_generated PROPERTIES JOB_POOL_COMPILE psprecomp_generated)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${MHFU_GENERATED})
 else()
     message(STATUS "mhfu: no generated AOT units found yet in profiles/mhfu/generated; using stub")
     add_library(mhfu_generated OBJECT host/generated_stub.cpp)
@@ -60,7 +61,8 @@ if(NOT EXISTS "${MHFU_LAYERED_INC}")
 endif()
 
 # Shaders
-find_program(MHFU_GLSLANG NAMES glslangValidator glslang)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+find_program(MHFU_GLSLANG NAMES glslangValidator glslang REQUIRED)
 if(MHFU_GLSLANG)
     set(MHFU_SHADER_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders/ge_shaders.inc")
     set(MHFU_SHADERS
@@ -75,7 +77,7 @@ if(MHFU_GLSLANG)
     add_custom_command(
         OUTPUT "${MHFU_SHADER_INC}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
-        COMMAND python "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/tools/embed_shaders.py" "${MHFU_GLSLANG}" "${MHFU_SHADER_INC}"
+        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/tools/embed_shaders.py" "${MHFU_GLSLANG}" "${MHFU_SHADER_INC}"
                 ${MHFU_SHADERS}
         DEPENDS ${MHFU_SHADER_SOURCES}
                 "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/tools/embed_shaders.py"
@@ -241,17 +243,40 @@ target_compile_definitions(MHFU PRIVATE
     MHP3RD_HAS_SDL=1
 )
 
+find_package(Threads REQUIRED)
+
 target_link_libraries(MHFU PRIVATE
     psprecomp_core
     SDL3::SDL3
     Vulkan::Vulkan
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
 )
 
 if(WIN32)
-    target_link_libraries(MHFU PRIVATE ws2_32 iphlpapi)
+    set(MHP3RD_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/packaging/windows/emblem.ico")
+    configure_file("${PROJECT_SOURCE_DIR}/profiles/mhp3rd/packaging/windows/Yakumo.rc.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}/Pokke.rc" @ONLY)
+    target_sources(MHFU PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Pokke.rc")
+    target_link_libraries(MHFU PRIVATE ws2_32 iphlpapi shell32)
     if(MINGW)
         target_link_options(MHFU PRIVATE "-Wl,--out-implib,${CMAKE_CURRENT_BINARY_DIR}/libPokke.dll.a" "-Wl,--export-all-symbols")
     endif()
+endif()
+
+option(MHFU_RELEASE "Build for distribution: no checkout paths, libraries from lib/ next to the executable" OFF)
+if(NOT MHFU_RELEASE AND NOT MHP3RD_RELEASE)
+    set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+        MHFU_DEFAULT_GAME_DIR="${MHFU_PROFILE_DIR}/game")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(MHFU_RELEASE_LINK_OPTIONS -static-libstdc++ "LINKER:--exclude-libs,libstdc++.a:libsupc++.a")
+    target_link_options(MHFU PRIVATE ${MHFU_RELEASE_LINK_OPTIONS})
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set_target_properties(MHFU PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN/lib")
 endif()
 
 set_target_properties(MHFU PROPERTIES
@@ -259,6 +284,7 @@ set_target_properties(MHFU PROPERTIES
     WINDOWS_EXPORT_ALL_SYMBOLS TRUE
     OUTPUT_NAME Pokke
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    JOB_POOL_COMPILE psprecomp_generated
 )
 
 set(MHFU_OVERLAY_DIR "${CMAKE_BINARY_DIR}/bin/overlays")
@@ -296,12 +322,24 @@ function(mhfu_add_overlay meta_path)
         "${MHFU_PROFILE_DIR}/host"
         "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host"
         "${PROJECT_SOURCE_DIR}/include")
-    if(WIN32)
+    if(WIN32 OR APPLE)
         target_link_libraries(${target} PRIVATE MHFU)
     else()
         add_dependencies(${target} MHFU)
     endif()
-    target_compile_options(${target} PRIVATE -O${PSPRECOMP_GENERATED_OPT_LEVEL} -g0)
+    if(MSVC)
+        target_compile_definitions(${target} PRIVATE PSPRECOMP_IMPORT_HOST_SYMBOLS=1)
+        if(PSPRECOMP_GENERATED_OPT_LEVEL STREQUAL "0")
+            target_compile_options(${target} PRIVATE /Od /bigobj)
+        else()
+            target_compile_options(${target} PRIVATE /O${PSPRECOMP_GENERATED_OPT_LEVEL} /Ob0 /bigobj)
+        endif()
+    else()
+        target_compile_options(${target} PRIVATE -O${PSPRECOMP_GENERATED_OPT_LEVEL} -g0)
+    endif()
+    if(MHFU_RELEASE_LINK_OPTIONS)
+        target_link_options(${target} PRIVATE ${MHFU_RELEASE_LINK_OPTIONS})
+    endif()
     set_target_properties(${target} PROPERTIES
         JOB_POOL_COMPILE psprecomp_generated
         CXX_VISIBILITY_PRESET hidden

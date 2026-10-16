@@ -90,8 +90,6 @@ void install_profile(psprecomp::Runtime &runtime, const psprecomp::Elf32Image &e
     std::cout << "HLE imports: " << imports.size() << " total, " << hle.count() << " implemented, " << stubbed
               << " logging stubs" << (strict ? " (strict mode)" : "") << "\n";
 
-    mhp3rd::install_overlay_support(runtime);
-
     auto &ctx = runtime.cpu();
     auto &memory = runtime.memory();
     for (std::size_t i = 0; i < kBootPath.size(); ++i)

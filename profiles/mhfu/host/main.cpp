@@ -3,6 +3,7 @@
 #include "app_paths.hpp"
 #include "platform/utf8_path.hpp"
 
+#include "adhoc/session.hpp"
 #include "install/game_identity.hpp"
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
@@ -28,6 +29,11 @@
 #include <thread>
 #include <vector>
 
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
+
 namespace {
 
 struct EmbeddedNid {
@@ -38,6 +44,31 @@ struct EmbeddedNid {
 constexpr EmbeddedNid kEmbeddedNids[] = {
 #include "nid_table.inc"
 };
+
+#if defined(__linux__)
+// Chained AOT calls nest native frames deeply and need a 64 MiB stack.
+// Raise RLIMIT_STACK and re-exec once if the launcher did not already set it.
+void ensure_main_stack(char **argv) {
+    constexpr rlim_t kWanted = 64ull * 1024u * 1024u;
+    constexpr const char *kMarker = "MHP3RD_STACK_RAISED";
+    rlimit limit{};
+    if (getrlimit(RLIMIT_STACK, &limit) != 0) return;
+    if (limit.rlim_cur == RLIM_INFINITY || limit.rlim_cur >= kWanted) return;
+    if (std::getenv(kMarker) != nullptr) return;
+    const rlim_t target = limit.rlim_max == RLIM_INFINITY || limit.rlim_max >= kWanted ? kWanted : limit.rlim_max;
+    if (target <= limit.rlim_cur) {
+        std::cerr << "Warning: stack is limited to " << (limit.rlim_cur >> 20)
+                  << " MiB and cannot be raised to 64 MiB\n";
+        return;
+    }
+    limit.rlim_cur = target;
+    if (setrlimit(RLIMIT_STACK, &limit) != 0) return;
+    setenv(kMarker, "1", 1);
+    const std::filesystem::path self = mhp3rd::executable_path();
+    execv(self.empty() ? "/proc/self/exe" : self.c_str(), argv);
+    std::cerr << "Warning: could not restart with a larger stack; deep call chains may overflow\n";
+}
+#endif
 
 std::uint64_t configured_max_dispatches() {
     constexpr std::uint64_t default_limit = 4'000'000'000ull;
@@ -67,7 +98,7 @@ constexpr const char *kUsage =
     "  --install image Set up game data directly from image.iso without GUI\n"
     "  --in-place      Use image where it is instead of copying\n"
     "  --data-dir dir  Specify custom user data directory for saves and settings\n"
-    "  --portable      Store data locally in data/ next to Pokke.exe\n";
+    "  --portable      Store data locally in data/ next to Pokke\n";
 
 struct Options {
     std::optional<std::filesystem::path> game_dir;
@@ -129,6 +160,14 @@ GameFiles files_in_game_directory(const std::filesystem::path &game_dir) {
     return files;
 }
 
+std::filesystem::path checkout_game_directory() {
+#if defined(MHFU_DEFAULT_GAME_DIR)
+    return MHFU_DEFAULT_GAME_DIR;
+#else
+    return {};
+#endif
+}
+
 int prepare_data_directory(const Options &options) {
     namespace install = mhp3rd::install;
     if (options.data_dir) install::set_data_directory_override(*options.data_dir);
@@ -148,7 +187,7 @@ std::optional<GameFiles> locate_game(const Options &options) {
         return files_in_game_directory(dir);
 
     const std::filesystem::path data_dir = install::user_data_directory();
-    const std::filesystem::path checkout_game_dir = "profiles/mhfu/game";
+    const std::filesystem::path checkout_game_dir = checkout_game_directory();
     bool run_setup = options.install;
 
     for (;;) {
@@ -177,8 +216,9 @@ std::optional<GameFiles> locate_game(const Options &options) {
             }
 
             // Developer checkout in profiles/mhfu/game
-            if (std::filesystem::exists(checkout_game_dir / "BOOT.ELF") ||
-                std::filesystem::exists(checkout_game_dir / "disc.iso"))
+            if (!checkout_game_dir.empty() &&
+                (std::filesystem::exists(checkout_game_dir / "BOOT.ELF") ||
+                 std::filesystem::exists(checkout_game_dir / "disc.iso")))
                 return files_in_game_directory(checkout_game_dir);
         }
 
@@ -214,6 +254,9 @@ std::optional<GameFiles> locate_game(const Options &options) {
 } // namespace
 
 int main(int argc, char **argv) {
+#if defined(__linux__)
+    ensure_main_stack(argv);
+#endif
     mhp3rd::use_utf8_console();
     try {
         Options options;
@@ -278,10 +321,14 @@ int main(int argc, char **argv) {
 
         runtime.run(elf.runtime_entry(mhfu::kLoadBase), configured_max_dispatches());
         std::cout << "\nRuntime stopped: " << runtime.stop_reason() << "\n";
+        mhp3rd::adhoc_shutdown();
+        if (mhp3rd::install::setup_requested_on_exit()) return mhp3rd::install::restart_for_setup(argv[0]);
+        if (mhp3rd::install::restart_requested_on_exit()) return mhp3rd::install::restart(argv);
         std::cout << mhp3rd::kernel().describe_threads() << "\n";
         runtime.report_hle_histogram();
         return runtime.stop_reason().empty() ? 0 : 4;
     } catch (const std::exception &e) {
+        mhp3rd::adhoc_shutdown();
         std::cerr << "Pokke error: " << e.what() << "\n";
         return 1;
     }

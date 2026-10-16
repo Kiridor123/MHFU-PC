@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff3b8"/>
+      <stop offset="0.35" stop-color="#f0bd56"/>
+      <stop offset="0.7" stop-color="#b87721"/>
+      <stop offset="1" stop-color="#75430d"/>
+    </linearGradient>
+    <linearGradient id="blade" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#cfd8dc"/>
+      <stop offset="0.55" stop-color="#78909c"/>
+      <stop offset="1" stop-color="#455a64"/>
+    </linearGradient>
+    <linearGradient id="crimson" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d32f2f"/>
+      <stop offset="0.6" stop-color="#8e1515"/>
+      <stop offset="1" stop-color="#4a0707"/>
+    </linearGradient>
+    <linearGradient id="textgold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.25" stop-color="#ffe58f"/>
+      <stop offset="0.55" stop-color="#e59c24"/>
+      <stop offset="1" stop-color="#8c4f04"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left & Right Wyvern Wings (transparent outer space) -->
+  <path d="M256,190 L170,115 L78,72 L42,98 L88,148 L36,162 L92,208 L48,236 L118,266 L86,304 L176,308 L226,265 Z"
+        fill="url(#gold)" stroke="#231204" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M256,190 L342,115 L434,72 L470,98 L424,148 L476,162 L420,208 L464,236 L394,266 L426,304 L336,308 L286,265 Z"
+        fill="url(#gold)" stroke="#231204" stroke-width="10" stroke-linejoin="round"/>
+
+  <!-- Crossed Great Swords behind the shield -->
+  <g stroke="#1c1108" stroke-width="9" stroke-linejoin="round">
+    <!-- Sword 1 (top-left to bottom-right) -->
+    <path d="M88,48 L142,40 L398,296 L366,328 L110,72 Z" fill="url(#blade)"/>
+    <path d="M352,272 L416,252 L430,268 L368,342 L352,326 Z" fill="url(#gold)"/>
+    <path d="M396,312 L454,370 L434,390 L376,332 Z" fill="#5d3214"/>
+    <!-- Sword 2 (top-right to bottom-left) -->
+    <path d="M424,48 L370,40 L114,296 L146,328 L402,72 Z" fill="url(#blade)"/>
+    <path d="M160,272 L96,252 L82,268 L144,342 L160,326 Z" fill="url(#gold)"/>
+    <path d="M116,312 L58,370 L78,390 L136,332 Z" fill="#5d3214"/>
+  </g>
+
+  <!-- Central Hunter Guild Shield / Crest -->
+  <path d="M256,64 L362,112 L344,268 L256,368 L168,268 L150,112 Z"
+        fill="url(#crimson)" stroke="url(#gold)" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M256,64 L362,112 L344,268 L256,368 L168,268 L150,112 Z"
+        fill="none" stroke="#1f0f04" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- Guild Star / Compass Emblem inside Shield -->
+  <path d="M256,96 L278,186 L342,212 L278,238 L256,328 L234,238 L170,212 L234,186 Z"
+        fill="url(#gold)" stroke="#231204" stroke-width="7" stroke-linejoin="round"/>
+  <circle cx="256" cy="212" r="22" fill="#fff5cc" stroke="#231204" stroke-width="6"/>
+
+  <!-- Bold MHFU Banner Plate (cutout style, no full background) -->
+  <path d="M28,332 L484,332 L462,474 L50,474 Z"
+        fill="#1e1108" stroke="url(#gold)" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M20,326 L492,326 L468,480 L44,480 Z"
+        fill="none" stroke="#1a0c02" stroke-width="5" stroke-linejoin="round"/>
+
+  <!-- "MHFU" Chiseled Monster Hunter Typography -->
+  <g fill="url(#textgold)" stroke="#140902" stroke-width="10" stroke-linejoin="round" paint-order="stroke fill">
+    <!-- M -->
+    <path d="M58,452 L58,354 L88,354 L108,402 L128,354 L158,354 L158,452 L132,452 L132,394 L112,438 L104,438 L84,394 L84,452 Z"/>
+    <!-- H -->
+    <path d="M176,452 L176,354 L204,354 L204,390 L236,390 L236,354 L264,354 L264,452 L236,452 L236,414 L204,414 L204,452 Z"/>
+    <!-- F -->
+    <path d="M284,452 L284,354 L356,354 L356,378 L312,378 L312,394 L348,394 L348,416 L312,416 L312,452 Z"/>
+    <!-- U -->
+    <path d="M370,354 L398,354 L398,416 C398,426 404,430 414,430 C424,430 430,426 430,416 L430,354 L458,354 L458,416 C458,442 440,455 414,455 C388,455 370,442 370,416 Z"/>
+  </g>
+</svg>
