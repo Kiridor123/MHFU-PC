@@ -1078,7 +1078,11 @@ struct VulkanRenderer::Impl {
     input::touch::ActionControls action_touch;
     input::touch::Insets touch_insets{};
     settings::TouchLayout touch_mode{settings::TouchLayout::Psp};
+#if defined(MHP3RD_ANDROID_APP)
+    bool touch_visible{true};
+#else
     bool touch_visible{};
+#endif
     bool real_mouse_seen{};
     MouseMotion touch_motion{};
     struct TouchLayoutKey {

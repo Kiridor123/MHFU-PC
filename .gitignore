@@ -13,6 +13,8 @@ cmake-build-*/
 *.so
 *.AppImage
 *.zip
+*.apk
+*.idsig
 /Pokke-Windows-x64/
 *.lib
 *.obj

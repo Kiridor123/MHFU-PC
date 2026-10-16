@@ -253,8 +253,12 @@ std::optional<GameFiles> locate_game(const Options &options) {
 
 } // namespace
 
+#if defined(MHP3RD_ANDROID_APP)
+int yakumo_main(int argc, char **argv) {
+#else
 int main(int argc, char **argv) {
-#if defined(__linux__)
+#endif
+#if defined(__linux__) && !defined(MHP3RD_ANDROID_APP)
     ensure_main_stack(argv);
 #endif
     mhp3rd::use_utf8_console();

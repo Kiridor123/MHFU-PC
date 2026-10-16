@@ -81,6 +81,12 @@ if(MHFU_GLSLANG)
         "kGeCheckVertexShader=GE_RAW_VERTICES,GE_CHECK_DECODE@${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/shaders/ge.vert"
         "kGeFragmentShader=${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/shaders/ge.frag"
         "kGeFragmentShaderPlain=GE_NO_SPECIALIZATION@${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/shaders/ge.frag")
+    if(ANDROID)
+        # Pre-rotation of the finished frame for a display turned sideways.
+        list(APPEND MHFU_SHADERS
+            "kRotateVertexShader=${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/shaders/rotate.vert"
+            "kRotateFragmentShader=${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/gpu/shaders/rotate.frag")
+    endif()
     set(MHFU_SHADER_SOURCES ${MHFU_SHADERS})
     list(TRANSFORM MHFU_SHADER_SOURCES REPLACE "^[A-Za-z]+=([A-Z_,]+@)?" "")
     list(REMOVE_DUPLICATES MHFU_SHADER_SOURCES)
@@ -220,10 +226,25 @@ set(MHFU_HOST_SOURCES
 )
 set_source_files_properties(${PROJECT_SOURCE_DIR}/profiles/mhp3rd/third_party/tiny_aes/aes.c PROPERTIES LANGUAGE CXX)
 
-add_executable(MHFU
-    ${MHFU_HOST_SOURCES}
-    $<TARGET_OBJECTS:mhfu_generated>
-)
+option(MHP3RD_ANDROID_APP "Build the Android app's libmain.so instead of an executable" OFF)
+if(MHP3RD_ANDROID_APP)
+    add_library(MHFU SHARED
+        ${MHFU_HOST_SOURCES}
+        ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/android_app.cpp
+        ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/android_jni.cpp
+        ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/android_documents.cpp
+        ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/android_performance.cpp
+        ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/android_fatal.cpp
+        ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/android_display.cpp
+        $<TARGET_OBJECTS:mhfu_generated>
+    )
+    target_compile_definitions(MHFU PRIVATE MHP3RD_ANDROID_APP=1)
+else()
+    add_executable(MHFU
+        ${MHFU_HOST_SOURCES}
+        $<TARGET_OBJECTS:mhfu_generated>
+    )
+endif()
 
 add_dependencies(MHFU mhfu_nids mhfu_version)
 if(MHFU_GLSLANG)
@@ -262,6 +283,9 @@ target_link_libraries(MHFU PRIVATE
     Threads::Threads
     ${CMAKE_DL_LIBS}
 )
+if(ANDROID)
+    target_link_libraries(MHFU PRIVATE log android)
+endif()
 
 if(MHFU_ARCH_OPTIONS)
     target_compile_options(MHFU PRIVATE ${MHFU_ARCH_OPTIONS})
@@ -287,24 +311,33 @@ option(MHFU_RELEASE "Build for distribution: no checkout paths, libraries from l
 if(NOT MHFU_RELEASE AND NOT MHP3RD_RELEASE)
     set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
         MHFU_DEFAULT_GAME_DIR="${MHFU_PROFILE_DIR}/game")
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
     set(MHFU_RELEASE_LINK_OPTIONS -static-libstdc++ "LINKER:--exclude-libs,libstdc++.a:libsupc++.a")
     target_link_options(MHFU PRIVATE ${MHFU_RELEASE_LINK_OPTIONS})
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
     set_target_properties(MHFU PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "$ORIGIN/lib")
 endif()
 
-set_target_properties(MHFU PROPERTIES
-    ENABLE_EXPORTS TRUE
-    WINDOWS_EXPORT_ALL_SYMBOLS TRUE
-    OUTPUT_NAME Pokke
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-    JOB_POOL_COMPILE psprecomp_generated
-)
+if(MHP3RD_ANDROID_APP)
+    set_target_properties(MHFU PROPERTIES
+        ENABLE_EXPORTS TRUE
+        OUTPUT_NAME main
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        JOB_POOL_COMPILE psprecomp_generated
+    )
+else()
+    set_target_properties(MHFU PROPERTIES
+        ENABLE_EXPORTS TRUE
+        WINDOWS_EXPORT_ALL_SYMBOLS TRUE
+        OUTPUT_NAME Pokke
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        JOB_POOL_COMPILE psprecomp_generated
+    )
+endif()
 
 set(MHFU_OVERLAY_DIR "${CMAKE_BINARY_DIR}/bin/overlays")
 
@@ -314,7 +347,7 @@ function(mhfu_configure_overlay_target target MHP3RD_OVERLAY_PREFIX source_dir)
         "${MHFU_PROFILE_DIR}/host"
         "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host"
         "${PROJECT_SOURCE_DIR}/include")
-    if(WIN32 OR APPLE)
+    if(WIN32 OR APPLE OR MHP3RD_ANDROID_APP)
         target_link_libraries(${target} PRIVATE MHFU)
     else()
         add_dependencies(${target} MHFU)
@@ -341,6 +374,10 @@ function(mhfu_configure_overlay_target target MHP3RD_OVERLAY_PREFIX source_dir)
         OUTPUT_NAME "${MHP3RD_OVERLAY_PREFIX}"
         LIBRARY_OUTPUT_DIRECTORY "${MHFU_OVERLAY_DIR}"
         RUNTIME_OUTPUT_DIRECTORY "${MHFU_OVERLAY_DIR}")
+    if(MHP3RD_ANDROID_APP)
+        # An APK only carries libraries named lib*.so.
+        set_target_properties(${target} PROPERTIES PREFIX "lib")
+    endif()
 endfunction()
 
 function(mhfu_add_overlay meta_path)
@@ -398,5 +435,13 @@ endforeach()
 list(LENGTH MHFU_OVERLAY_METADATA MHFU_OVERLAY_COUNT)
 list(LENGTH MHFU_OVERLAY_BUNDLES MHFU_BUNDLE_COUNT)
 math(EXPR MHFU_TOTAL_OVERLAY_LIBS "${MHFU_OVERLAY_COUNT} + ${MHFU_BUNDLE_COUNT}")
+# Clang's optimization pipeline at -O2 exhibits pathological compile times on these
+# massive single-function overlay units; compile them at -O0.
+set_source_files_properties(
+    "${MHFU_PROFILE_DIR}/overlays/ovl09A5F300_game_task_36BD79C16BF70197/generated_unit_0013.cpp"
+    "${MHFU_PROFILE_DIR}/overlays/ovl09A5F300_lobby_task_F431CAA134157E88/generated_unit_0025.cpp"
+    PROPERTIES COMPILE_OPTIONS "-O0;-g0"
+)
+
 message(STATUS "mhfu: ${MHFU_TOTAL_OVERLAY_LIBS} overlay librar(ies) in ${MHFU_OVERLAY_DIR}")
 
