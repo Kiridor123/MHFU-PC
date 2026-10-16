@@ -1083,6 +1083,8 @@ struct VulkanRenderer::Impl {
 #else
     bool touch_visible{};
 #endif
+    bool touch_hud_hidden{false};
+    input::touch::Circle hud_toggle_circle{};
     bool real_mouse_seen{};
     MouseMotion touch_motion{};
     struct TouchLayoutKey {
@@ -1142,6 +1144,17 @@ struct VulkanRenderer::Impl {
         // The action layout follows its editor as well; placing it is cheap.
         action_touch.set_layout(player.touch_action,
             input::touch::safe_area(static_cast<float>(width), static_cast<float>(height), touch_insets), size);
+
+        const float w = static_cast<float>(width);
+        const float h = static_cast<float>(height);
+        const float unit = std::min(h, w * 9.0f / 16.0f) * std::clamp(size, 0.5f, 2.0f);
+        const float face = unit * 0.075f;
+        const float small = face * 0.55f;
+        const float left = touch_insets.left;
+        const float right = w - touch_insets.right;
+        const float top = touch_insets.top;
+        const float middle = (left + right) * 0.5f;
+        hud_toggle_circle = {{middle + small * 6.0f, top + small * 1.6f}, small};
     }
     [[nodiscard]] static bool action_layout() {
         return settings::current().touch_layout == settings::TouchLayout::Action;
@@ -1178,7 +1191,19 @@ struct VulkanRenderer::Impl {
         const input::touch::Point at{
             event.tfinger.x * static_cast<float>(width), event.tfinger.y * static_cast<float>(height)};
         const std::uint64_t id = event.tfinger.fingerID;
-        if (event.type == SDL_EVENT_FINGER_DOWN) touch_visible = true;
+        if (event.type == SDL_EVENT_FINGER_DOWN) {
+            if (hud_toggle_circle.contains(at, 1.4f)) {
+                touch_hud_hidden = !touch_hud_hidden;
+                touch_visible = !touch_hud_hidden;
+                touch.release_all();
+                action_touch.release_all();
+                lock_on_touch_tap = {};
+                return;
+            }
+            if (touch_hud_hidden) return;
+            touch_visible = true;
+        }
+        if (touch_hud_hidden) return;
         input::touch::Point drag;
         const bool r3_before = touch_r3_held();
         if (action_layout()) {
@@ -6093,12 +6118,28 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     if (impl_->gamepad != nullptr && (focused || player.background_gamepad))
         read_gamepad(impl_->gamepad, impl_->mapped, pad, analog_x, analog_y);
     // So do the on-screen controls.
-    if (impl_->touch_visible) {
+    if (impl_->touch_visible && !impl_->touch_hud_hidden) {
         const bool action = Impl::action_layout();
         pad.buttons |= action ? impl_->action_touch.buttons(SDL_GetTicks()) : impl_->touch.buttons();
         const input::touch::Point stick = action ? impl_->action_touch.stick() : impl_->touch.stick();
         analog_x += static_cast<int>(std::lround(stick.x * 127.0f));
         analog_y += static_cast<int>(std::lround(stick.y * 127.0f));
+
+        const input::touch::Point rstick = action ? input::touch::Point{} : impl_->touch.right_stick();
+        if (rstick.x != 0.0f || rstick.y != 0.0f) {
+            const PadTuning tuning = pad_tuning();
+            const float rx = tuning.invert_x ? -rstick.x : rstick.x;
+            const float ry = tuning.invert_y ? -rstick.y : rstick.y;
+            if (drives_dpad_typed) {
+                if (rx < -0.25f) pad.buttons |= 0x0080u; // Left
+                if (rx > 0.25f) pad.buttons |= 0x0020u;  // Right
+                if (ry < -0.25f) pad.buttons |= 0x0010u; // Up
+                if (ry > 0.25f) pad.buttons |= 0x0040u;  // Down
+            } else if (player.right_stick == settings::RightStick::Camera) {
+                pad.right_x = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(rx * 127.0f), 0, 255));
+                pad.right_y = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(ry * 127.0f), 0, 255));
+            }
+        }
     }
 
     // With MHP3RD_PAD_AT_FLIP the game reads what the last pump sampled.
@@ -6142,7 +6183,20 @@ PadState VulkanRenderer::pad() const noexcept {
 }
 
 bool VulkanRenderer::touch_controls_visible() const noexcept {
-    return impl_ && impl_->touch_visible && impl_->game_input && settings::current().touch_controls;
+    return impl_ && impl_->game_input && settings::current().touch_controls &&
+        (impl_->touch_visible || impl_->touch_hud_hidden);
+}
+
+bool VulkanRenderer::touch_hud_hidden() const noexcept {
+    return impl_ && impl_->touch_hud_hidden;
+}
+
+void VulkanRenderer::set_touch_hud_hidden(bool hidden) noexcept {
+    if (impl_) impl_->touch_hud_hidden = hidden;
+}
+
+input::touch::Circle VulkanRenderer::hud_toggle_circle() const noexcept {
+    return impl_ ? impl_->hud_toggle_circle : input::touch::Circle{};
 }
 
 const input::touch::Controls &VulkanRenderer::touch_controls() const {

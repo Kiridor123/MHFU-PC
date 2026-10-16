@@ -18,6 +18,9 @@ void draw_touch_controls(const input::touch::Controls &controls, float opacity);
 // The action layout (#174) the same way, `ms` for the swipes' marks.
 void draw_action_controls(const input::touch::ActionControls &controls, float opacity, std::uint64_t ms);
 
+// A small toggle button to hide or show on-screen touch controls.
+void draw_hud_toggle_button(const input::touch::Circle &circle, float opacity, bool hidden);
+
 // One element of the action layout, for the game and for the editor: its
 // own icon, drawn in code, and the PSP buttons it presses beside it.
 struct ElementLook {

@@ -112,6 +112,7 @@ set(MHFU_HOST_SOURCES
     host/main.cpp
     host/mhfu_profile.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/app_paths.cpp
+    ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/crash_logger.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/platform/utf8_path.cpp
     ${MHFU_PROFILE_DIR}/host/overlays.cpp
     ${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/camera_probe.cpp
@@ -312,8 +313,11 @@ if(NOT MHFU_RELEASE AND NOT MHP3RD_RELEASE)
     set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
         MHFU_DEFAULT_GAME_DIR="${MHFU_PROFILE_DIR}/game")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
-    set(MHFU_RELEASE_LINK_OPTIONS -static-libstdc++ "LINKER:--exclude-libs,libstdc++.a:libsupc++.a")
-    target_link_options(MHFU PRIVATE ${MHFU_RELEASE_LINK_OPTIONS})
+    find_library(LIBSTDCXX_STATIC NAMES libstdc++.a)
+    if(LIBSTDCXX_STATIC)
+        set(MHFU_RELEASE_LINK_OPTIONS -static-libstdc++ "LINKER:--exclude-libs,libstdc++.a:libsupc++.a")
+        target_link_options(MHFU PRIVATE ${MHFU_RELEASE_LINK_OPTIONS})
+    endif()
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)

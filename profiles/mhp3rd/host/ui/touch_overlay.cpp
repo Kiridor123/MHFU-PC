@@ -353,6 +353,53 @@ void draw_touch_controls(const input::touch::Controls &controls, float opacity) 
         const ImVec2 knob{origin.x + push.x * layout.stick_radius, origin.y + push.y * layout.stick_radius};
         list->AddCircleFilled(knob, layout.stick_radius * 0.45f, colour(255, 255, 255, base * 0.6f));
     }
+    // The floating right stick (camera control) while active.
+    const input::touch::Stick &right_stick = controls.right_stick_state();
+    if (right_stick.active) {
+        const ImVec2 origin{right_stick.origin.x, right_stick.origin.y};
+        list->AddCircleFilled(origin, layout.stick_radius, colour(0, 0, 0, base * 0.3f));
+        list->AddCircle(origin, layout.stick_radius, colour(255, 255, 255, base * 0.7f), 0,
+            std::max(1.5f, layout.stick_radius * 0.04f));
+        const float s = layout.stick_radius * 0.75f;
+        for (const ImVec2 d : {ImVec2{1, 0}, ImVec2{-1, 0}, ImVec2{0, 1}, ImVec2{0, -1}}) {
+            const ImVec2 tip{origin.x + d.x * s, origin.y + d.y * s};
+            const ImVec2 p{-d.y, d.x};
+            list->AddTriangleFilled(tip,
+                {tip.x - d.x * layout.stick_radius * 0.12f + p.x * layout.stick_radius * 0.08f,
+                 tip.y - d.y * layout.stick_radius * 0.12f + p.y * layout.stick_radius * 0.08f},
+                {tip.x - d.x * layout.stick_radius * 0.12f - p.x * layout.stick_radius * 0.08f,
+                 tip.y - d.y * layout.stick_radius * 0.12f - p.y * layout.stick_radius * 0.08f},
+                colour(255, 255, 255, base * 0.5f));
+        }
+        const input::touch::Point push = controls.right_stick();
+        const ImVec2 knob{origin.x + push.x * layout.stick_radius, origin.y + push.y * layout.stick_radius};
+        list->AddCircleFilled(knob, layout.stick_radius * 0.45f, colour(255, 255, 255, base * 0.6f));
+    }
+}
+
+void draw_hud_toggle_button(const input::touch::Circle &circle, float opacity, bool hidden) {
+    if (circle.radius <= 0.0f) return;
+    ImDrawList *list = ImGui::GetBackgroundDrawList();
+    const ImVec2 c{circle.centre.x, circle.centre.y};
+    const float r = circle.radius;
+    const float base = std::clamp(opacity, 0.25f, 1.0f);
+    const float thickness = std::max(1.5f, r * 0.08f);
+
+    list->AddCircleFilled(c, r, colour(0, 0, 0, base * (hidden ? 0.35f : 0.5f)));
+    list->AddCircle(c, r + thickness, colour(0, 0, 0, base * 0.6f), 0, thickness);
+    list->AddCircle(c, r, colour(255, 255, 255, base * (hidden ? 0.55f : 0.85f)), 0, thickness);
+
+    ImFont *font = ImGui::GetFont();
+    const char *text = "HUD";
+    const float size = r * 0.72f;
+    const ImVec2 extent = font->CalcTextSizeA(size, 1e9f, 0.0f, text);
+    const ImU32 ink = colour(255, 255, 255, base * (hidden ? 0.6f : 0.95f));
+    list->AddText(font, size, {c.x - extent.x * 0.5f, c.y - extent.y * 0.5f}, ink, text);
+
+    if (hidden) {
+        list->AddLine({c.x - r * 0.65f, c.y + r * 0.65f}, {c.x + r * 0.65f, c.y - r * 0.65f},
+            colour(240, 96, 112, base * 0.9f), thickness * 1.5f);
+    }
 }
 
 void draw_psp_element(

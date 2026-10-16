@@ -293,7 +293,7 @@ bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
         if (identity_hash(runtime.memory(), corpus) != corpus.hash) continue;
         auto &installed = installed_overlays();
         if (installed[slot_start] == corpus.hash) return false; // already installed: a real miss
-        runtime.unregister_functions(slot_start, slot_start + corpus.size);
+        runtime.unregister_functions(slot_start, slot_end);
         corpus.install(runtime);
         installed[slot_start] = corpus.hash;
         installed_headers()[slot_start] = header_hash(runtime.memory(), slot_start);
@@ -356,7 +356,8 @@ void revalidate_overlays(Runtime &runtime) {
         }
         // A different overlay now occupies the slot: drop the stale code so the
         // next dispatch there goes through the miss hook.
-        runtime.unregister_functions(corpus->base, corpus->base + corpus->size);
+        const auto [s_start, s_end] = slot_of(slot_start);
+        runtime.unregister_functions(s_start, s_end != 0u ? s_end : (corpus->base + corpus->size));
         std::cout << "[overlay] " << corpus->name << " was replaced in " << psprecomp::hex32(slot_start) << "\n";
         installed_headers().erase(slot_start);
         it = installed_overlays().erase(it);

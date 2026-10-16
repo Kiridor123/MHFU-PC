@@ -1,6 +1,7 @@
 #include "mhfu_profile.hpp"
 
 #include "app_paths.hpp"
+#include "platform/crash_logger.hpp"
 #include "platform/utf8_path.hpp"
 
 #include "adhoc/session.hpp"
@@ -262,6 +263,7 @@ int main(int argc, char **argv) {
     ensure_main_stack(argv);
 #endif
     mhp3rd::use_utf8_console();
+    mhp3rd::init_crash_logger(argc, argv);
     try {
         Options options;
         try {

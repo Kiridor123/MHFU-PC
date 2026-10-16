@@ -910,6 +910,9 @@ Settings defaults_for(Platform platform) {
         values.aspect = Aspect::Fill;
         values.fullscreen = true;
         values.mouse = false;
+        values.frame_rate = FrameRate::Display;
+        values.frame_rate_auto = true;
+        values.internal_scale = 2u;
     }
     return values;
 }

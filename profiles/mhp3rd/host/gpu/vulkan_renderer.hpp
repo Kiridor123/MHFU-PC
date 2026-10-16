@@ -120,6 +120,9 @@ public:
     // The on-screen touch controls: shown once the screen is touched while the
     // game runs, hidden again by a gamepad, the keyboard or a real mouse.
     [[nodiscard]] bool touch_controls_visible() const noexcept;
+    [[nodiscard]] bool touch_hud_hidden() const noexcept;
+    void set_touch_hud_hidden(bool hidden) noexcept;
+    [[nodiscard]] input::touch::Circle hud_toggle_circle() const noexcept;
     [[nodiscard]] const input::touch::Controls &touch_controls() const;
     // The action layout's controls (#174), which take the fingers instead
     // while settings choose that layout.

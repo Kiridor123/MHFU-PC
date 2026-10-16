@@ -116,6 +116,9 @@ public:
     // The stick, each axis -1..1, right and down positive.
     [[nodiscard]] Point stick() const;
     [[nodiscard]] const Stick &stick_state() const { return stick_; }
+    // The right stick for camera control.
+    [[nodiscard]] Point right_stick() const;
+    [[nodiscard]] const Stick &right_stick_state() const { return right_stick_; }
     // Camera drag since the last take, in pixels.
     [[nodiscard]] Point take_camera_drag();
     // The menu button was tapped since the last take.
@@ -128,7 +131,7 @@ public:
     [[nodiscard]] bool any_finger() const;
 
 private:
-    enum class Role : std::uint8_t { None, Stick, Control, Camera, DPad };
+    enum class Role : std::uint8_t { None, Stick, RightStick, Control, Camera, DPad };
     struct Finger {
         std::uint64_t id{};
         bool used{};
@@ -145,6 +148,7 @@ private:
     Layout layout_{};
     std::array<Finger, kFingers> fingers_{};
     Stick stick_{};
+    Stick right_stick_{};
     Point camera_drag_{};
     bool menu_tapped_{};
     bool dpad_toggled_{};

@@ -19,7 +19,7 @@ inline constexpr std::uint32_t kOverlaySlots[] = {
     0x09C19100u, // demo_sub, game_sub (2)
     0x09D1A280u, // em* monster overlays (17)
     0x09D63100u, // stage* stage/quest overlays (267)
-    0x09D65580u, // end of the load image
+    0x0A000000u, // end of 64 MiB guest RAM
 };
 
 inline void install_profile(psprecomp::Runtime &runtime, const psprecomp::Elf32Image &elf, const ProfilePaths &paths) {

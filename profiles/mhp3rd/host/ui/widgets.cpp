@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 namespace mhp3rd::ui {
 namespace {
@@ -265,6 +266,14 @@ ImGuiStyle make_style(float scale, float font_size) {
     return style;
 }
 
+namespace {
+bool panel_close_requested_flag{};
+}
+
+bool panel_close_requested() {
+    return std::exchange(panel_close_requested_flag, false);
+}
+
 void begin_panel(const char *id, const std::string &title, const std::string &subtitle, bool dim_game) {
     const ImGuiIO &io = ImGui::GetIO();
     if (dim_game) ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, io.DisplaySize, colors::kBackdrop);
@@ -285,9 +294,32 @@ void begin_panel(const char *id, const std::string &title, const std::string &su
     ImGui::PopStyleColor();
     const float title_height = ImGui::GetItemRectSize().y;
     ImGui::PopFont();
+
+    const float pad_right = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - ImGui::GetStyle().WindowPadding.x;
+    const float btn_size = std::max(font() * 1.5f, 26.0f);
+    const ImVec2 btn_pos{pad_right - btn_size, title_at.y - px(2.0f)};
+
+    ImGui::SetCursorScreenPos(btn_pos);
+    ImGui::PushID("panel_close_btn");
+    if (ImGui::InvisibleButton("##close", {btn_size, btn_size})) {
+        panel_close_requested_flag = true;
+        Layer::get().request_back();
+    }
+    const bool btn_hovered = ImGui::IsItemHovered();
+    const bool btn_active = ImGui::IsItemActive();
+    ImGui::PopID();
+
+    const ImU32 bg_col = btn_active ? colors::kRowFocus : (btn_hovered ? colors::kRowHover : IM_COL32(255, 255, 255, 24));
+    draw->AddCircleFilled({btn_pos.x + btn_size * 0.5f, btn_pos.y + btn_size * 0.5f}, btn_size * 0.45f, bg_col);
+    const float cross_r = btn_size * 0.22f;
+    const ImVec2 center{btn_pos.x + btn_size * 0.5f, btn_pos.y + btn_size * 0.5f};
+    const ImU32 cross_col = btn_hovered ? colors::kAccentBright : colors::kTextDim;
+    draw->AddLine({center.x - cross_r, center.y - cross_r}, {center.x + cross_r, center.y + cross_r}, cross_col, px(2.0f));
+    draw->AddLine({center.x + cross_r, center.y - cross_r}, {center.x - cross_r, center.y + cross_r}, cross_col, px(2.0f));
+
     if (!subtitle.empty()) {
         const float width = ImGui::CalcTextSize(subtitle.c_str()).x;
-        const float right = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - ImGui::GetStyle().WindowPadding.x;
+        const float right = btn_pos.x - px(10.0f);
         draw->AddText({right - width, title_at.y + title_height - font() * 1.15f}, colors::kTextDim, subtitle.c_str());
     }
     const ImVec2 line = ImGui::GetCursorScreenPos();
@@ -363,11 +395,31 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
     // The switch buttons at both ends.
+    const bool is_touch_or_android =
+#if defined(MHP3RD_ANDROID_APP) || defined(__ANDROID__)
+        true;
+#else
+        settings::current().touch_controls;
+#endif
+    const char *label_l = pad ? shoulder_name(false) : (is_touch_or_android ? "<" : "Q");
+    const char *label_r = pad ? shoulder_name(true) : (is_touch_or_android ? ">" : "W");
     const float cap_left =
-        draw_cap(draw, {start.x, start.y + (height - font()) * 0.5f}, pad ? shoulder_name(false) : "Q", false);
-    const float cap_right_width = ImGui::CalcTextSize(pad ? shoulder_name(true) : "W").x + font() * 0.7f;
+        draw_cap(draw, {start.x, start.y + (height - font()) * 0.5f}, label_l, false);
+    const float cap_right_width = ImGui::CalcTextSize(label_r).x + font() * 0.7f;
     draw_cap(draw, {start.x + width - std::max(font() * 1.15f, cap_right_width), start.y + (height - font()) * 0.5f},
-        pad ? shoulder_name(true) : "W", false);
+        label_r, false);
+
+    ImGui::SetCursorScreenPos({start.x, start.y + (height - font()) * 0.5f});
+    ImGui::PushID("tab_prev_btn");
+    if (ImGui::InvisibleButton("##prev", {std::max(cap_left, font() * 1.5f), font() * 1.5f}))
+        selected = (selected + count - 1) % count;
+    ImGui::PopID();
+
+    ImGui::SetCursorScreenPos({start.x + width - std::max(font() * 1.15f, cap_right_width), start.y + (height - font()) * 0.5f});
+    ImGui::PushID("tab_next_btn");
+    if (ImGui::InvisibleButton("##next", {std::max(cap_right_width, font() * 1.5f), font() * 1.5f}))
+        selected = (selected + 1) % count;
+    ImGui::PopID();
 
     const float inner_left = start.x + cap_left + px(14.0f);
     const float inner_width = width - cap_left - std::max(font() * 1.15f, cap_right_width) - px(28.0f);
@@ -721,12 +773,27 @@ void hints(std::initializer_list<Hint> list) {
         case Control::Back:
             if (pad)
                 x += draw_face(draw, {x, at.y}, back) + gap;
-            else
-                cap("Esc");
+            else {
+#if defined(MHP3RD_ANDROID_APP) || defined(__ANDROID__)
+                cap("Back");
+#else
+                cap(settings::current().touch_controls ? "Back" : "Esc");
+#endif
+            }
             break;
         case Control::Tabs:
-            cap(pad ? shoulder_name(false) : "Q");
-            cap(pad ? shoulder_name(true) : "W");
+#if defined(MHP3RD_ANDROID_APP) || defined(__ANDROID__)
+            cap(pad ? shoulder_name(false) : "<");
+            cap(pad ? shoulder_name(true) : ">");
+#else
+            if (settings::current().touch_controls && !pad) {
+                cap("<");
+                cap(">");
+            } else {
+                cap(pad ? shoulder_name(false) : "Q");
+                cap(pad ? shoulder_name(true) : "W");
+            }
+#endif
             break;
         case Control::Change:
             arrows();
@@ -736,7 +803,11 @@ void hints(std::initializer_list<Hint> list) {
                 cap("L3");
                 cap("R3");
             } else {
-                cap("F1");
+#if defined(MHP3RD_ANDROID_APP) || defined(__ANDROID__)
+                cap("Menu");
+#else
+                cap(settings::current().touch_controls ? "Menu" : "F1");
+#endif
             }
             break;
         case Control::Start:

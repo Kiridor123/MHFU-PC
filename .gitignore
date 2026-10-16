@@ -64,8 +64,10 @@ overlay_*.bin
 *.generated
 *.tmp
 *.log
+/log/
 *.pdb
 *.ilk
+MHFU-Logo.png
 
 # Editor and agent tooling
 .claude/

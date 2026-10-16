@@ -322,9 +322,10 @@ bool Menu::frame() {
     end_panel();
     bindings_capture_prompt();
 
+    const bool panel_close = panel_close_requested();
     if (confirm_ != Confirm::None) {
-        if ((back || pad_back) && confirm_opened_) confirm_ = Confirm::None;
-    } else if (!font_list_was_open && (((back || pad_back) && !was_editing_) || start)) {
+        if ((back || pad_back || panel_close) && confirm_opened_) confirm_ = Confirm::None;
+    } else if (!font_list_was_open && (((back || pad_back) && !was_editing_) || start || panel_close)) {
         close_ = true;
     }
     if (close_ && !quit_ && (texture_pack_import_busy() || mods_import_busy())) close_ = false;
@@ -2232,10 +2233,14 @@ void draw_over_game() {
     if (flying) draw_free_camera_indicator(free_camera);
     if (touch) {
         const settings::Settings &player = settings::current();
-        if (player.touch_layout == settings::TouchLayout::Action)
-            draw_action_controls(layer.renderer().action_touch_controls(), player.touch_opacity, SDL_GetTicks());
-        else
-            draw_touch_controls(layer.renderer().touch_controls(), player.touch_opacity);
+        const bool hidden = layer.renderer().touch_hud_hidden();
+        if (!hidden) {
+            if (player.touch_layout == settings::TouchLayout::Action)
+                draw_action_controls(layer.renderer().action_touch_controls(), player.touch_opacity, SDL_GetTicks());
+            else
+                draw_touch_controls(layer.renderer().touch_controls(), player.touch_opacity);
+        }
+        draw_hud_toggle_button(layer.renderer().hud_toggle_circle(), player.touch_opacity, hidden);
     }
     if (hint_left > 0.0) draw_hint(hint_left);
     if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);

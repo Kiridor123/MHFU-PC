@@ -282,7 +282,12 @@ void Controls::finger_down(std::uint64_t id, Point at) {
         slot->role = Role::Stick;
         stick_ = {true, layout_.floating_stick ? at : layout_.stick.centre, at};
     } else if (at.x >= layout_.stick_split) {
-        slot->role = Role::Camera;
+        if (!right_stick_.active) {
+            slot->role = Role::RightStick;
+            right_stick_ = {true, at, at};
+        } else {
+            slot->role = Role::Camera;
+        }
     }
 }
 
@@ -302,6 +307,20 @@ void Controls::finger_move(std::uint64_t id, Point at) {
             stick_.origin.x += dx * excess;
             stick_.origin.y += dy * excess;
         }
+        break;
+    }
+    case Role::RightStick: {
+        right_stick_.thumb = at;
+        const float dx = at.x - right_stick_.origin.x;
+        const float dy = at.y - right_stick_.origin.y;
+        const float length = std::hypot(dx, dy);
+        if (length > layout_.stick_radius && length > 0.0f) {
+            const float excess = (length - layout_.stick_radius) / length;
+            right_stick_.origin.x += dx * excess;
+            right_stick_.origin.y += dy * excess;
+        }
+        camera_drag_.x += at.x - finger->last.x;
+        camera_drag_.y += at.y - finger->last.y;
         break;
     }
     case Role::Control: {
@@ -343,12 +362,14 @@ void Controls::finger_up(std::uint64_t id) {
     Finger *finger = find(id);
     if (finger == nullptr) return;
     if (finger->role == Role::Stick) stick_ = {};
+    if (finger->role == Role::RightStick) right_stick_ = {};
     *finger = Finger{};
 }
 
 void Controls::release_all() {
     fingers_ = {};
     stick_ = {};
+    right_stick_ = {};
     camera_drag_ = {};
     menu_tapped_ = false;
     dpad_toggled_ = false;
@@ -393,6 +414,13 @@ bool Controls::any_finger() const {
 Point Controls::stick() const {
     if (!stick_.active) return {};
     return stick_deflection({stick_.thumb.x - stick_.origin.x, stick_.thumb.y - stick_.origin.y}, layout_.stick_radius);
+}
+
+Point Controls::right_stick() const {
+    if (!right_stick_.active) return {};
+    return stick_deflection(
+        {right_stick_.thumb.x - right_stick_.origin.x, right_stick_.thumb.y - right_stick_.origin.y},
+        layout_.stick_radius);
 }
 
 Point Controls::take_camera_drag() {

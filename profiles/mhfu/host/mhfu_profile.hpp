@@ -31,7 +31,7 @@ inline constexpr std::uint32_t kOverlaySlots[] = {
     0x09C19100u, // demo_sub, game_sub task sub-routines (2)
     0x09D1A280u, // em* monster AI and combat overlays (17)
     0x09D63100u, // stage* stage and quest overlays: stage000..stage266 (267)
-    0x09D65500u, // end of the load image / debug.elf
+    0x0A000000u, // end of 64 MiB guest RAM
 };
 
 } // namespace mhfu

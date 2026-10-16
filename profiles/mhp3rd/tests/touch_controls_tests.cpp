@@ -466,6 +466,27 @@ void test_action_fingers() {
     check(controls.buttons(ms) == 0x1200u, "a rebound button presses its combination");
 }
 
+void test_right_stick() {
+    Controls controls;
+    const Layout layout = make_layout(1280.0f, 576.0f, {}, 1.0f);
+    controls.set_layout(layout);
+
+    controls.finger_down(1, {800.0f, 300.0f});
+    check(controls.right_stick_state().active, "right stick active on touch down");
+    check(controls.right_stick().x == 0.0f && controls.right_stick().y == 0.0f, "right stick centered initially");
+
+    controls.finger_move(1, {800.0f + layout.stick_radius, 300.0f});
+    check(controls.right_stick().x > 0.8f, "deflecting right registers positive x");
+    check(std::fabs(controls.right_stick().y) < 0.1f, "deflecting right has near zero y");
+
+    controls.finger_move(1, {800.0f, 300.0f - layout.stick_radius});
+    check(controls.right_stick().y < -0.8f, "deflecting up registers negative y");
+
+    controls.finger_up(1);
+    check(!controls.right_stick_state().active, "right stick inactive after finger up");
+    check(controls.right_stick().x == 0.0f && controls.right_stick().y == 0.0f, "right stick cleared after lift");
+}
+
 } // namespace
 
 int main() {
@@ -477,6 +498,7 @@ int main() {
     test_stick_maths();
     test_dpad();
     test_fingers();
+    test_right_stick();
     test_action_layout();
     test_action_fingers();
     if (failures != 0) {

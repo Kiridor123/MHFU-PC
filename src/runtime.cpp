@@ -1196,7 +1196,16 @@ void Runtime::invoke_import_cached(
         if (library_it == hle_.end() || function_it == library_it->second.end()) {
             const std::string library_name(library);
             const auto name = nids_.resolve(library_name, nid).value_or(hex32(nid));
-            stop("Missing HLE import " + library_name + "::" + name);
+            static const bool strict = std::getenv("PSPRECOMP_STRICT_HLE") != nullptr ||
+                std::getenv("MHP3RD_STRICT_HLE") != nullptr || std::getenv("MHFU_STRICT_HLE") != nullptr;
+            if (strict) {
+                stop("Missing HLE import " + library_name + "::" + name);
+                return;
+            }
+            std::cerr << "[hle-stub] unhandled bound import " << library_name << "::" << name
+                      << " a0=" << hex32(ctx.gpr[4]) << " a1=" << hex32(ctx.gpr[5])
+                      << " ra=" << hex32(ctx.gpr[31]) << " -> returning 0\n";
+            ctx.gpr[2] = 0u;
             return;
         }
         if (slot >= import_bindings_.size()) import_bindings_.resize(static_cast<std::size_t>(slot) + 1u, nullptr);
@@ -1219,7 +1228,16 @@ void Runtime::invoke_import(std::string_view library, std::uint32_t nid, Allegre
     if (library_it == hle_.end() || function_it == library_it->second.end()) {
         const std::string library_name(library);
         const auto name = nids_.resolve(library_name, nid).value_or(hex32(nid));
-        stop("Missing HLE import " + library_name + "::" + name);
+        static const bool strict = std::getenv("PSPRECOMP_STRICT_HLE") != nullptr ||
+            std::getenv("MHP3RD_STRICT_HLE") != nullptr || std::getenv("MHFU_STRICT_HLE") != nullptr;
+        if (strict) {
+            stop("Missing HLE import " + library_name + "::" + name);
+            return;
+        }
+        std::cerr << "[hle-stub] unhandled import " << library_name << "::" << name
+                  << " a0=" << hex32(ctx.gpr[4]) << " a1=" << hex32(ctx.gpr[5])
+                  << " ra=" << hex32(ctx.gpr[31]) << " -> returning 0\n";
+        ctx.gpr[2] = 0u;
         return;
     }
     function_it->second(*this, ctx);
