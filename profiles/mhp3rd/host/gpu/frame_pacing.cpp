@@ -181,10 +181,12 @@ double RateGovernor::cost_ms(double rate, const Second &second) noexcept {
 
 void RateGovernor::step_to(std::size_t index, const char *why) {
     if (index < index_) {
-        // The rate left behind waits before it is tried again, longer each
-        // time it fails.
-        blocked_[index_] = block_length_[index_];
-        block_length_[index_] = std::min(block_length_[index_] * 2, kMaxBlockSeconds);
+        // The rate left behind and any faster rates wait before they are tried
+        // again, longer each time they fail.
+        for (std::size_t r = index_; r < ladder_.size(); ++r) {
+            blocked_[r] = std::max(blocked_[r], block_length_[r]);
+            block_length_[r] = std::min(block_length_[r] * 2, kMaxBlockSeconds);
+        }
         wait_up_ = kSecondsAfterDown;
     }
     index_ = index;
