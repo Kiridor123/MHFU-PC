@@ -87,23 +87,16 @@ constexpr std::uint32_t kSettleFrames = 12u;
 constexpr float kScreenWideDraw = 470.0f;
 // Room for one frame's vertices. With frame interpolation a frame cannot reuse
 // its region part way through, so all of it must fit: measured at 16.1 MiB in
-// the busiest areas found (Flooded Forest area 3, Tundra area 2), where 16 MiB
-// left the interface, drawn last, and parts of the ground out. Twice that.
-constexpr VkDeviceSize kVertexBufferBytes = 72u * 1024u * 1024u;
-// Index lists of merged draws (see submit()), kept apart from the vertices so
-// that the draws of one group have consecutive indices.
-constexpr VkDeviceSize kIndexBufferBytes = 16u * 1024u * 1024u;
-// Frame interpolation draws a frame again after the game has moved on, from
-// the vertices, indices and lighting blocks that frame wrote. So the vertex
-// and index buffers hold three frames' worth: the frame being drawn, the
-// newer and the older of the two being blended. Without interpolation only
-// the first region is used, as before. After them, the vertex buffer has a
-// scratch area for each of the two presents that can be in flight, for the
-// blended vertices of skinned draws and the lighting blocks of blended draws.
-constexpr std::uint32_t kFrameRegions = 3u;
-constexpr VkDeviceSize kPresentScratchBytes = 16u * 1024u * 1024u;
-constexpr VkDeviceSize kVertexBufferTotal = kFrameRegions * kVertexBufferBytes + 2u * kPresentScratchBytes;
-constexpr VkDeviceSize kIndexBufferTotal = kFrameRegions * kIndexBufferBytes;
+// the busiest areas found in MHP3rd (Flooded Forest area 3, Tundra area 2).
+// In MHFU, multi-pass areas with ice reflection (Snowy Mountains area 5) require
+// ~75-85 MiB per frame. Dynamic topology adaptation sets the active budget.
+constexpr VkDeviceSize kDefaultVertexBufferBytes = 96u * 1024u * 1024u;
+constexpr VkDeviceSize kDefaultIndexBufferBytes = 16u * 1024u * 1024u;
+constexpr std::uint32_t kDefaultFrameRegions = 3u;
+constexpr VkDeviceSize kDefaultPresentScratchBytes = 8u * 1024u * 1024u;
+constexpr VkDeviceSize kDefaultVertexBufferTotal =
+    kDefaultFrameRegions * kDefaultVertexBufferBytes + 2u * kDefaultPresentScratchBytes;
+constexpr VkDeviceSize kDefaultIndexBufferTotal = kDefaultFrameRegions * kDefaultIndexBufferBytes;
 
 // Says, once in a while, that a frame's geometry did not fit and some of its
 // draws were left out, instead of dropping them silently.
@@ -1626,22 +1619,84 @@ struct VulkanRenderer::Impl {
     VkDeviceMemory vertex_memory{};
     void *vertex_mapped{};
     VkDeviceSize vertex_offset{};
+    // Dynamic memory budget configuration per device topology:
+    VkDeviceSize vertex_buffer_bytes{kDefaultVertexBufferBytes};
+    VkDeviceSize index_buffer_bytes{kDefaultIndexBufferBytes};
+    std::uint32_t frame_regions{kDefaultFrameRegions};
+    VkDeviceSize present_scratch_bytes{kDefaultPresentScratchBytes};
+    VkDeviceSize vertex_buffer_total{kDefaultVertexBufferTotal};
+    VkDeviceSize index_buffer_total{kDefaultIndexBufferTotal};
+
+    void configure_memory_budget(VkPhysicalDevice physical_dev) {
+        VkPhysicalDeviceMemoryProperties memory_properties{};
+        vkGetPhysicalDeviceMemoryProperties(physical_dev, &memory_properties);
+
+        VkDeviceSize max_bar_heap = 0u;
+        bool has_dedicated_vram = false;
+        for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+            const VkMemoryType &type = memory_properties.memoryTypes[i];
+            const VkMemoryPropertyFlags flags = type.propertyFlags;
+            const bool is_local = (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u;
+            const bool is_host_visible = (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u;
+            if (is_local && !is_host_visible) {
+                has_dedicated_vram = true;
+            }
+            if (is_local && is_host_visible) {
+                const VkDeviceSize heap_size = memory_properties.memoryHeaps[type.heapIndex].size;
+                if (heap_size > max_bar_heap) max_bar_heap = heap_size;
+            }
+        }
+
+        const bool is_uma = !has_dedicated_vram || (max_bar_heap >= 1024ull * 1024ull * 1024ull);
+
+        // Budget sizing:
+        // Complex multi-pass areas (e.g. Snowy Mountains Area 5 ice cave reflection pass) submit
+        // ~75-85 MiB of geometry and uniforms per frame.
+        // On UMA architectures (Android, Intel N100, Steam Deck, AMD APUs) and systems with large
+        // ReBAR (>= 512 MiB), grant 112 MiB per frame region for plenty of headroom.
+        // On discrete GPUs with traditional 256 MiB BAR, allocate 96 MiB per frame region with
+        // 8 MiB scratch, comfortably fitting Area 5 with a 20 MiB safety margin.
+        if (is_uma || max_bar_heap >= 512ull * 1024ull * 1024ull) {
+            vertex_buffer_bytes = 112u * 1024u * 1024u;
+            index_buffer_bytes = 24u * 1024u * 1024u;
+            present_scratch_bytes = 16u * 1024u * 1024u;
+        } else {
+            vertex_buffer_bytes = 96u * 1024u * 1024u;
+            index_buffer_bytes = 16u * 1024u * 1024u;
+            present_scratch_bytes = 8u * 1024u * 1024u;
+        }
+
+        if (const char *env_vert = std::getenv("MHP3RD_VERTEX_BUFFER_MIB")) {
+            char *end = nullptr;
+            const unsigned long mib = std::strtoul(env_vert, &end, 10);
+            if (mib >= 32ul && mib <= 512ul) {
+                vertex_buffer_bytes = static_cast<VkDeviceSize>(mib) * 1024u * 1024u;
+            }
+        }
+
+        frame_regions = 3u;
+        vertex_buffer_total = frame_regions * vertex_buffer_bytes + 2u * present_scratch_bytes;
+        index_buffer_total = frame_regions * index_buffer_bytes;
+        vertex_limit = vertex_buffer_bytes;
+        index_limit = index_buffer_bytes;
+    }
+
     // The region of the vertex and index buffers this frame writes: always
-    // the first without frame interpolation, the next of kFrameRegions in
-    // turn with it (see kFrameRegions).
+    // the first without frame interpolation, the next of frame_regions in
+    // turn with it (see frame_regions).
     std::uint32_t frame_region{};
     std::uint32_t next_region{};
-    VkDeviceSize vertex_limit{kVertexBufferBytes};
-    VkDeviceSize index_limit{kIndexBufferBytes};
+    VkDeviceSize vertex_limit{kDefaultVertexBufferBytes};
+    VkDeviceSize index_limit{kDefaultIndexBufferBytes};
     void enter_region(std::uint32_t index) {
         // How much of its region the frame being left used, for the perf line.
-        perf::note_frame_space(vertex_offset - static_cast<VkDeviceSize>(frame_region) * kVertexBufferBytes,
-            index_offset - static_cast<VkDeviceSize>(frame_region) * kIndexBufferBytes);
+        perf::note_frame_space(vertex_offset - static_cast<VkDeviceSize>(frame_region) * vertex_buffer_bytes,
+            index_offset - static_cast<VkDeviceSize>(frame_region) * index_buffer_bytes);
         frame_region = index;
-        vertex_offset = static_cast<VkDeviceSize>(index) * kVertexBufferBytes;
-        vertex_limit = vertex_offset + kVertexBufferBytes;
-        index_offset = static_cast<VkDeviceSize>(index) * kIndexBufferBytes;
-        index_limit = index_offset + kIndexBufferBytes;
+        vertex_offset = static_cast<VkDeviceSize>(index) * vertex_buffer_bytes;
+        vertex_limit = vertex_offset + vertex_buffer_bytes;
+        index_offset = static_cast<VkDeviceSize>(index) * index_buffer_bytes;
+        index_limit = index_offset + index_buffer_bytes;
     }
     // The lighting blocks most recently written this frame, reused while the
     // state stays the same; begin_frame() drops them with the vertex buffer.
@@ -2646,10 +2701,11 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     // What the player's log needs about this GPU, and whether it has all the
     // renderer takes for granted: a missing piece is named instead of
     // leaving a black screen.
+    impl.configure_memory_budget(impl.physical_device);
     impl.facts = read_device_facts(impl.physical_device);
     log_device(impl.physical_device, impl.surface, impl.facts);
     if (const std::vector<std::string> missing =
-            missing_requirements(impl.physical_device, impl.facts, kVertexBufferTotal);
+            missing_requirements(impl.physical_device, impl.facts, impl.vertex_buffer_total);
         !missing.empty()) {
         error = impl.facts.name + " (driver " + impl.facts.driver_version_text() + ") lacks what Yakumo needs:";
         for (std::size_t i = 0; i < missing.size(); ++i) error += (i == 0u ? " " : "; ") + missing[i];
@@ -3026,7 +3082,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     }
 
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = kVertexBufferTotal;
+    buffer_info.size = impl.vertex_buffer_total;
     buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -3041,9 +3097,9 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (!check(vkAllocateMemory(impl.device, &allocate, nullptr, &impl.vertex_memory), "vkAllocateMemory", error))
         return false;
     vkBindBufferMemory(impl.device, impl.vertex_buffer, impl.vertex_memory, 0u);
-    vkMapMemory(impl.device, impl.vertex_memory, 0u, kVertexBufferTotal, 0u, &impl.vertex_mapped);
+    vkMapMemory(impl.device, impl.vertex_memory, 0u, impl.vertex_buffer_total, 0u, &impl.vertex_mapped);
 
-    buffer_info.size = kIndexBufferTotal;
+    buffer_info.size = impl.index_buffer_total;
     buffer_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     if (!check(vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.index_buffer), "vkCreateBuffer", error))
         return false;
@@ -3054,7 +3110,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (!check(vkAllocateMemory(impl.device, &allocate, nullptr, &impl.index_memory), "vkAllocateMemory", error))
         return false;
     vkBindBufferMemory(impl.device, impl.index_buffer, impl.index_memory, 0u);
-    vkMapMemory(impl.device, impl.index_memory, 0u, kIndexBufferTotal, 0u, &impl.index_mapped);
+    vkMapMemory(impl.device, impl.index_memory, 0u, impl.index_buffer_total, 0u, &impl.index_mapped);
 
     {
         VkPhysicalDeviceProperties device_properties{};
@@ -3064,7 +3120,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         if (impl.lighting_descriptor == VK_NULL_HANDLE) return false;
         // The vertex buffer read as words must fit the storage range every
         // device offers at least (2^27 bytes); GPU vertex decode needs it.
-        impl.gpu_decode_available = kVertexBufferTotal <= device_properties.limits.maxStorageBufferRange;
+        impl.gpu_decode_available = impl.vertex_buffer_total <= device_properties.limits.maxStorageBufferRange;
         if (impl.check_gpu_decode) {
             // Two frame slots' worth, each with room past the compared part
             // for draws beyond it to write into.
@@ -3195,7 +3251,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                   << VK_API_VERSION_MINOR(properties.apiVersion) << "." << VK_API_VERSION_PATCH(properties.apiVersion)
                   << ", driver 0x" << std::hex << properties.driverVersion << ", vendor 0x" << properties.vendorID
                   << ", device 0x" << properties.deviceID << std::dec << "; vertex buffer "
-                  << (kVertexBufferTotal >> 20u) << " MiB in memory type " << vertex_type << " ("
+                  << (impl.vertex_buffer_total >> 20u) << " MiB (" << (impl.vertex_buffer_bytes >> 20u)
+                  << " MiB/frame) in memory type " << vertex_type << " ("
                   << ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u ? "device local, " : "")
                   << ((flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0u ? "cached" : "uncached") << "); depth format "
                   << static_cast<int>(impl.depth_format) << "\n";
@@ -8143,7 +8200,7 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     std::swap(older_frame, newer_frame);
     std::swap(newer_frame, recording_frame);
     recording_frame.clear();
-    next_region = (frame_region + 1u) % kFrameRegions;
+    next_region = (frame_region + 1u) % frame_regions;
 
     // The picture, before the game draws anything else into its target.
     std::string error;
@@ -8413,8 +8470,8 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
 
     // The slot's scratch area: blended vertices and object blocks.
     VkDeviceSize scratch_at =
-        static_cast<VkDeviceSize>(kFrameRegions) * kVertexBufferBytes + slot * kPresentScratchBytes;
-    const VkDeviceSize scratch_end = scratch_at + kPresentScratchBytes;
+        static_cast<VkDeviceSize>(frame_regions) * vertex_buffer_bytes + slot * present_scratch_bytes;
+    const VkDeviceSize scratch_end = scratch_at + present_scratch_bytes;
     auto *mapped = static_cast<std::uint8_t *>(vertex_mapped);
 
     // What the command buffer has, so that unchanged state is not set again.
@@ -8450,8 +8507,8 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     for (const ReplayGroup &drawn : older.groups) {
         if (drawn.target != older.displayed) continue;
         // The regions this replay reads, for present_regions.
-        if (drawn.vertex_base < static_cast<VkDeviceSize>(kFrameRegions) * kVertexBufferBytes)
-            replay_regions |= 1u << static_cast<std::uint32_t>(drawn.vertex_base / kVertexBufferBytes);
+        if (drawn.vertex_base < static_cast<VkDeviceSize>(frame_regions) * vertex_buffer_bytes)
+            replay_regions |= 1u << static_cast<std::uint32_t>(drawn.vertex_base / vertex_buffer_bytes);
         DrawState state = drawn.state;
         VkDeviceSize vertex_base = drawn.vertex_base;
         std::int32_t partner = -1;
