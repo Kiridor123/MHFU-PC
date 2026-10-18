@@ -1661,14 +1661,16 @@ struct VulkanRenderer::Impl {
         const bool is_uma = !has_dedicated_vram || (max_bar_heap >= 1024ull * 1024ull * 1024ull);
 
         // Budget sizing:
-        // Complex multi-pass areas (e.g. Desert stage112 with vast dunes and oasis water,
-        // Snowy Mountains Area 5 ice cave reflection passes, and Jungle canopy with dense trees)
-        // submit 110-150 MiB of geometry and uniforms.
-        // Grant 160 MiB per frame region with 16 MiB present scratch and 32 MiB index buffer
-        // to guarantee no geometry, trees, oasis, character models, or HUD elements are ever dropped.
-        vertex_buffer_bytes = 160u * 1024u * 1024u;
-        index_buffer_bytes = 32u * 1024u * 1024u;
-        present_scratch_bytes = 16u * 1024u * 1024u;
+        // With sparse indexed primitive compaction enabled, even heavy multi-pass
+        // stages (Desert stage112, Ice Cave stage092, Jungle stage141) use under
+        // 4 MiB of vertex buffer per frame. Sizing 48 MiB/frame (160 MiB total)
+        // and 16 MiB/frame index buffer (48 MiB total) lets both buffers reside
+        // inside a 256 MiB DEVICE_LOCAL | HOST_VISIBLE VRAM heap. When sparse
+        // compaction is disabled (MHP3RD_NO_SPARSE_COMPACT), fall back to 160 MiB/frame.
+        const bool sparse_compact = std::getenv("MHP3RD_NO_SPARSE_COMPACT") == nullptr;
+        vertex_buffer_bytes = (sparse_compact ? 48u : 160u) * 1024u * 1024u;
+        index_buffer_bytes = (sparse_compact ? 16u : 32u) * 1024u * 1024u;
+        present_scratch_bytes = (sparse_compact ? 8u : 16u) * 1024u * 1024u;
 
         if (const char *env_vert = std::getenv("MHP3RD_VERTEX_BUFFER_MIB")) {
             char *end = nullptr;
@@ -8952,8 +8954,14 @@ bool VulkanRenderer::present(
         std::cout << "[direct-check] " << impl.direct_checked << " draws compared, " << impl.direct_mismatched
                   << " differed" << std::endl;
 
+    // Framebuffers read as textures in VRAM are sampled directly from the GPU
+    // Target (find_framebuffer_texture), and framebuffers copied out of VRAM via
+    // GE block transfer or sceDmacMemcpy trigger read_back_framebuffer() on
+    // demand. Avoid an unconditional full-screen GPU blit, PCIe copy, fence wait
+    // and CPU RGB565 pack on every single frame unless MHP3RD_ALWAYS_WRITEBACK is set.
+    static const bool always_writeback = std::getenv("MHP3RD_ALWAYS_WRITEBACK") != nullptr;
     static const bool no_writeback = std::getenv("MHP3RD_NO_FB_TEXTURES") != nullptr;
-    if (!no_writeback) impl.record_writeback(display_address);
+    if (always_writeback && !no_writeback) impl.record_writeback(display_address);
 
     // Show the target the guest flipped to; fall back to whatever was drawn last.
     auto displayed = impl.targets.find(display_address);

@@ -284,6 +284,7 @@ private:
     void handle_command(const GuestMemory &memory, std::uint32_t command, std::uint32_t data);
     void trace_unhandled(std::uint32_t command, std::uint32_t data);
     void draw_primitive(const GuestMemory &memory, std::uint32_t data);
+    void evaluate_bounding_box(const GuestMemory &memory, std::uint32_t data);
     void draw_bezier_or_spline(std::uint32_t command);
 
     std::array<std::uint32_t, 256> registers_{};
@@ -334,6 +335,13 @@ private:
     std::uint64_t unhandled_commands_{};
     bool raw_vertices_{};
     bool raw_also_decoded_{};
+    std::vector<std::uint32_t> remap_stamp_;
+    std::vector<std::uint16_t> remap_index_;
+    std::uint32_t remap_generation_{1u};
+    std::vector<std::uint16_t> unique_indices_;
+    std::vector<std::uint8_t> gathered_raw_;
+    std::vector<Vertex> bbox_vertices_;
+    bool bbox_culled_{};
 };
 
 // Copies the game makes out of VRAM with the DMA controller, remembered for
@@ -349,6 +357,7 @@ bool find_vram_copy(std::uint32_t address, std::uint32_t &source, std::uint32_t 
 // `bone_matrices`, when given, points at 8 consecutive 3x4 matrices (96 floats)
 // and skinned vertices are blended into their bones' space by their weights.
 std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, std::uint32_t vertex_type,
-    std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices = nullptr);
+    std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices = nullptr,
+    const std::uint8_t *raw_override = nullptr);
 
 } // namespace mhp3rd::gpu

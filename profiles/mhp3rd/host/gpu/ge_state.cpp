@@ -382,7 +382,7 @@ VertexFormat vertex_format(std::uint32_t vertex_type) noexcept {
 }
 
 std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, std::uint32_t vertex_type,
-    std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices) {
+    std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices, const std::uint8_t *raw_override) {
     // Field order is weights, texcoords, color, normal, position; every field is
     // aligned to its component size and the vertex to the largest of them.
     const std::uint32_t texcoord_type = vertex_type & 3u;
@@ -420,8 +420,9 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
 
     // Resolve the whole vertex run once and read it directly; a run that is not
     // contiguous in host memory falls back to checked loads.
-    const std::uint8_t *data =
-        count != 0u ? memory.raw_pointer(address, static_cast<std::size_t>(count) * stride) : nullptr;
+    const std::uint8_t *data = raw_override != nullptr
+        ? raw_override
+        : (count != 0u ? memory.raw_pointer(address, static_cast<std::size_t>(count) * stride) : nullptr);
     static const bool check_decode = std::getenv("MHP3RD_CHECK_DECODE") != nullptr;
     const DecodeRun fast_run = data != nullptr && morph_count == 1u && position_type != 0u
         ? kDecodeRuns[weight_type][normal_type][position_type]
@@ -1110,6 +1111,8 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     const std::uint64_t split_start = split ? perf::split_ticks() : 0u;
     std::uint32_t vertex_count = count;
     std::uint32_t first_vertex = 0u;
+    std::uint32_t span_vertices = count;
+    bool compacted_sparse = false;
     if (index_type != 0u && index_address_ != 0u) {
         // A list that points its indices outside RAM is malformed; skip the draw
         // rather than faulting the whole runtime on it.
@@ -1145,19 +1148,71 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
             call.indices[i] = static_cast<std::uint16_t>(index);
         }
         // Games draw a mesh as many indexed prims into one shared vertex
-        // buffer. Decode only the vertices this prim references, not the
-        // whole buffer from vertex 0, and rebase its indices onto them.
-        if (count != 0u) {
+        // buffer. When a primitive's index span contains unreferenced gaps,
+        // compact the referenced vertices into a dense sequential slice so
+        // only the vertices actually used by this primitive are decoded and
+        // uploaded.
+        span_vertices = count != 0u ? highest - lowest + 1u : 0u;
+        static const bool compact_enabled = std::getenv("MHP3RD_NO_SPARSE_COMPACT") == nullptr;
+        if (compact_enabled && count != 0u && span_vertices > count && highest <= 0xFFFFu) {
             first_vertex = lowest;
-            for (std::uint16_t &index : call.indices) index = static_cast<std::uint16_t>(index - lowest);
+            if (remap_stamp_.size() < 65536u) {
+                remap_stamp_.assign(65536u, 0u);
+                remap_index_.resize(65536u);
+            }
+            if (++remap_generation_ == 0u) {
+                std::fill(remap_stamp_.begin(), remap_stamp_.end(), 0u);
+                remap_generation_ = 1u;
+            }
+            unique_indices_.clear();
+            unique_indices_.reserve(count);
+            for (std::uint16_t &index : call.indices) {
+                const std::uint16_t orig = index;
+                if (remap_stamp_[orig] != remap_generation_) {
+                    remap_stamp_[orig] = remap_generation_;
+                    const auto mapped = static_cast<std::uint16_t>(unique_indices_.size());
+                    remap_index_[orig] = mapped;
+                    unique_indices_.push_back(orig);
+                    index = mapped;
+                } else {
+                    index = remap_index_[orig];
+                }
+            }
+            vertex_count = static_cast<std::uint32_t>(unique_indices_.size());
+            compacted_sparse = true;
+        } else {
+            if (count != 0u) {
+                first_vertex = lowest;
+                for (std::uint16_t &index : call.indices) index = static_cast<std::uint16_t>(index - lowest);
+            }
+            vertex_count = span_vertices;
         }
-        vertex_count = count != 0u ? highest - lowest + 1u : 0u;
     }
 
     const std::uint32_t probe = decode_vertices(memory, vertex_address_, vertex_type_, 0u, call.vertices);
     if (probe == 0u) return;
     const std::uint32_t first_address = vertex_address_ + first_vertex * probe;
-    if (!memory.contains(first_address, static_cast<std::size_t>(probe) * vertex_count)) return;
+    if (!memory.contains(first_address, static_cast<std::size_t>(probe) * span_vertices)) return;
+    const std::uint8_t *raw_source = nullptr;
+    if (compacted_sparse) {
+        const std::size_t span_bytes = static_cast<std::size_t>(probe) * span_vertices;
+        const std::uint8_t *span_ptr = memory.raw_pointer(first_address, span_bytes);
+        gathered_raw_.resize(static_cast<std::size_t>(probe) * vertex_count);
+        std::uint8_t *dst = gathered_raw_.data();
+        if (span_ptr != nullptr) {
+            for (std::uint32_t u = 0; u < vertex_count; ++u) {
+                const std::size_t rel = static_cast<std::size_t>(unique_indices_[u] - first_vertex) * probe;
+                std::memcpy(dst + static_cast<std::size_t>(u) * probe, span_ptr + rel, probe);
+            }
+        } else {
+            for (std::uint32_t u = 0; u < vertex_count; ++u) {
+                const std::uint32_t vaddr = vertex_address_ + static_cast<std::uint32_t>(unique_indices_[u]) * probe;
+                for (std::uint32_t b = 0; b < probe; ++b)
+                    dst[static_cast<std::size_t>(u) * probe + b] = memory.load8(vaddr + b);
+            }
+        }
+        raw_source = gathered_raw_.data();
+    }
     call.raw_vertices = nullptr;
     call.raw_count = 0u;
     call.raw_stride = 0u;
@@ -1168,7 +1223,9 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     const bool one_morph = ((vertex_type_ >> 18u) & 7u) == 0u;
     const bool positioned = ((vertex_type_ >> 7u) & 3u) != 0u;
     if (raw_vertices_ && !call.through && triangles && one_morph && positioned && vertex_count != 0u) {
-        call.raw_vertices = memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
+        call.raw_vertices = raw_source != nullptr
+            ? raw_source
+            : memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
         if (call.raw_vertices != nullptr) {
             call.raw_count = vertex_count;
             call.raw_stride = probe;
@@ -1177,8 +1234,8 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
         }
     }
     if (call.raw_vertices == nullptr || raw_also_decoded_)
-        stride =
-            decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices, bone_matrices_.data());
+        stride = decode_vertices(
+            memory, first_address, vertex_type_, vertex_count, call.vertices, bone_matrices_.data(), raw_source);
     if (split) perf::add_split(perf::Split::Decode, perf::split_ticks() - split_start);
     if (stride == 0u || (call.vertices.empty() && call.raw_vertices == nullptr)) return;
     // A prim leaves VADDR/IADDR alone but advances the pointer it consumed, so
@@ -1219,6 +1276,75 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     if (draw_sink_) draw_sink_(call);
 }
 
+void GeState::evaluate_bounding_box(const GuestMemory &memory, std::uint32_t data) {
+    static const bool no_cull = std::getenv("MHP3RD_NO_BBOX_CULL") != nullptr;
+    const std::uint32_t count = data & 0xFFFFu;
+    if (no_cull || view_hook_ != nullptr || count == 0u || (count & 7u) != 0u || count > 64u ||
+        vertex_address_ == 0u || (vertex_type_ & (1u << 23u)) != 0u) {
+        bbox_culled_ = false;
+        return;
+    }
+    const std::uint32_t probe = decode_vertices(memory, vertex_address_, vertex_type_, 0u, bbox_vertices_);
+    if (probe == 0u || !memory.contains(vertex_address_, static_cast<std::size_t>(probe) * count)) {
+        bbox_culled_ = false;
+        return;
+    }
+    if (decode_vertices(memory, vertex_address_, vertex_type_, count, bbox_vertices_, bone_matrices_.data()) == 0u ||
+        bbox_vertices_.size() != count) {
+        bbox_culled_ = false;
+        return;
+    }
+
+    const auto multiply_4x4 = [](const std::array<float, 16> &a, const std::array<float, 16> &b) {
+        std::array<float, 16> out{};
+        for (std::uint32_t col = 0; col < 4u; ++col) {
+            for (std::uint32_t row = 0; row < 4u; ++row) {
+                float sum = 0.0f;
+                for (std::uint32_t k = 0; k < 4u; ++k) sum += a[k * 4u + row] * b[col * 4u + k];
+                out[col * 4u + row] = sum;
+            }
+        }
+        return out;
+    };
+    const std::array<float, 16> wvp = multiply_4x4(projection_, multiply_4x4(view_, world_));
+    // Guard-band margin in homogeneous clip space: 2.0x in X/Y and 1.5x in Z
+    // accommodates widescreen aspect-ratio scaling while still culling boxes
+    // that lie completely behind the camera or outside a frustum half-space.
+    constexpr float kGuardXY = 2.0f;
+    constexpr float kGuardZ = 1.5f;
+
+    for (std::uint32_t box = 0u; box < count; box += 8u) {
+        std::uint32_t plane_mask = 0x7Fu;
+        for (std::uint32_t i = 0u; i < 8u; ++i) {
+            const Vertex &v = bbox_vertices_[box + i];
+            const float x = v.position[0];
+            const float y = v.position[1];
+            const float z = v.position[2];
+            const float cx = wvp[0] * x + wvp[4] * y + wvp[8] * z + wvp[12];
+            const float cy = wvp[1] * x + wvp[5] * y + wvp[9] * z + wvp[13];
+            const float cz = wvp[2] * x + wvp[6] * y + wvp[10] * z + wvp[14];
+            const float cw = wvp[3] * x + wvp[7] * y + wvp[11] * z + wvp[15];
+
+            std::uint32_t v_mask = 0u;
+            if (cw <= 0.0f) v_mask |= (1u << 0u);
+            if (cx + kGuardXY * cw < 0.0f) v_mask |= (1u << 1u);
+            if (kGuardXY * cw - cx < 0.0f) v_mask |= (1u << 2u);
+            if (cy + kGuardXY * cw < 0.0f) v_mask |= (1u << 3u);
+            if (kGuardXY * cw - cy < 0.0f) v_mask |= (1u << 4u);
+            if (cz + kGuardZ * cw < 0.0f) v_mask |= (1u << 5u);
+            if (kGuardZ * cw - cz < 0.0f) v_mask |= (1u << 6u);
+            plane_mask &= v_mask;
+        }
+        // If this 8-corner sub-box is not completely outside any single plane,
+        // the bounding volume is potentially visible.
+        if (plane_mask == 0u) {
+            bbox_culled_ = false;
+            return;
+        }
+    }
+    bbox_culled_ = true;
+}
+
 std::uint32_t GeState::execute(const GuestMemory &memory, std::uint32_t pc, std::uint32_t stall, bool &finished) {
     finished = false;
     if (world_[15] == 0.0f) {
@@ -1248,9 +1374,11 @@ std::uint32_t GeState::execute(const GuestMemory &memory, std::uint32_t pc, std:
             // ORIGIN makes later relative addresses count from this command.
             offset_address_ = pc - 4u;
             continue;
+        case kBoundingBox:
+            evaluate_bounding_box(memory, data);
+            continue;
         case kConditionalJump:
-            // The bounding-box test is not evaluated; taking the jump would skip
-            // geometry, so fall through to the next command instead.
+            if (bbox_culled_) pc = relative_address(data) & 0x0FFFFFFCu;
             continue;
         case kCall:
             call_stack_.push_back(pc);

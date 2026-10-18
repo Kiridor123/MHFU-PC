@@ -4,8 +4,12 @@
 #include "psprecomp/common.hpp"
 
 #include "gpu/ge_state.hpp"
+#if defined(MHP3RD_HAS_RENDERER)
+#include "gpu/vulkan_renderer.hpp"
+#endif
 
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 
 namespace mhp3rd {
@@ -127,14 +131,24 @@ void register_sysmem(HleRegistrar &hle) {
         // framebuffers are.
         static const bool trace = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
         const auto in_vram = [](std::uint32_t address) { return (address & 0x1F000000u) == 0x04000000u; };
+        if (in_vram(source)) {
+#if defined(MHP3RD_HAS_RENDERER)
+            if (gpu::VulkanRenderer *renderer = active_renderer())
+                renderer->read_back_framebuffer(source, rt.memory());
+#endif
+            if (trace) gpu::note_vram_copy(destination, source, size);
+        }
         if (trace && (in_vram(source) || in_vram(destination))) {
             static std::uint32_t traced = 0u;
             if (traced++ < 400u)
                 std::cout << "[fbtex] sceDmacMemcpy 0x" << std::hex << source << " -> 0x" << destination << std::dec
                           << " (" << size << " bytes)\n";
-            if (in_vram(source)) gpu::note_vram_copy(destination, source, size);
         }
-        if (destination < source || destination >= source + size) {
+        std::uint8_t *dst_ptr = size != 0u ? rt.memory().raw_pointer(destination, size) : nullptr;
+        const std::uint8_t *src_ptr = size != 0u ? rt.memory().raw_pointer(source, size) : nullptr;
+        if (dst_ptr != nullptr && src_ptr != nullptr) {
+            std::memmove(dst_ptr, src_ptr, size);
+        } else if (destination < source || destination >= source + size) {
             for (std::uint32_t i = 0; i < size; ++i) rt.memory().store8(destination + i, rt.memory().load8(source + i));
         } else {
             for (std::uint32_t i = size; i-- > 0u;) rt.memory().store8(destination + i, rt.memory().load8(source + i));
