@@ -21,6 +21,7 @@
 #include "ui/text_input.hpp"
 #include "ui/touch_editor.hpp"
 #include "ui/touch_overlay.hpp"
+#include "ui/ui_localization.hpp"
 #include "ui/widgets.hpp"
 
 #include "adhoc/client.hpp"
@@ -92,10 +93,10 @@ std::string size_text(std::uint32_t scale) {
 // variable decides it for this run, the row is shown but locked.
 RowOptions options_for(const char *key, std::string description) {
     RowOptions options;
-    options.description = std::move(description);
+    options.description = tr(std::move(description));
     if (const char *variable = settings::overridden_by(key)) {
         options.disabled = true;
-        options.note = std::string("Set by ") + variable;
+        options.note = is_spanish() ? (std::string("Fijado por ") + variable) : (std::string("Set by ") + variable);
     }
     return options;
 }

@@ -90,27 +90,32 @@ constexpr float kScreenWideDraw = 470.0f;
 // the busiest areas found in MHP3rd (Flooded Forest area 3, Tundra area 2).
 // In MHFU, multi-pass areas with ice reflection (Snowy Mountains area 5) require
 // ~75-85 MiB per frame. Dynamic topology adaptation sets the active budget.
-constexpr VkDeviceSize kDefaultVertexBufferBytes = 96u * 1024u * 1024u;
-constexpr VkDeviceSize kDefaultIndexBufferBytes = 16u * 1024u * 1024u;
+constexpr VkDeviceSize kDefaultVertexBufferBytes = 160u * 1024u * 1024u;
+constexpr VkDeviceSize kDefaultIndexBufferBytes = 32u * 1024u * 1024u;
 constexpr std::uint32_t kDefaultFrameRegions = 3u;
-constexpr VkDeviceSize kDefaultPresentScratchBytes = 8u * 1024u * 1024u;
+constexpr VkDeviceSize kDefaultPresentScratchBytes = 16u * 1024u * 1024u;
 constexpr VkDeviceSize kDefaultVertexBufferTotal =
     kDefaultFrameRegions * kDefaultVertexBufferBytes + 2u * kDefaultPresentScratchBytes;
 constexpr VkDeviceSize kDefaultIndexBufferTotal = kDefaultFrameRegions * kDefaultIndexBufferBytes;
 
 // Says, once in a while, that a frame's geometry did not fit and some of its
-// draws were left out, instead of dropping them silently.
+// draws were left out, instead of dropping them silently. Rate limited to avoid
+// blocking main thread on multi-pass heavy scenes.
 void report_frame_space_full(
     const char *what, VkDeviceSize current = 0, VkDeviceSize needed = 0, VkDeviceSize limit = 0) {
     static std::uint64_t count = 0;
-    if (count++ % 600u == 0u) {
+    static auto last_log_time = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    ++count;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_log_time >= std::chrono::seconds(5)) {
+        last_log_time = now;
         std::cout << "[render] a frame ran out of " << what << " space; the draws past it are not drawn (" << count
                   << " so far)";
         if (limit > 0) {
             std::cout << " [used " << (current >> 20u) << " MiB, needed " << (needed >> 10u) << " KiB, limit "
                       << (limit >> 20u) << " MiB]";
         }
-        std::cout << "\n" << std::flush;
+        std::cout << "\n";
     }
 }
 constexpr std::size_t kMaxCachedTextures = 1024u;
@@ -1656,12 +1661,13 @@ struct VulkanRenderer::Impl {
         const bool is_uma = !has_dedicated_vram || (max_bar_heap >= 1024ull * 1024ull * 1024ull);
 
         // Budget sizing:
-        // Complex multi-pass areas (e.g. Snowy Mountains Area 5 ice cave reflection passes,
-        // and Jungle canopy with dense trees) submit 90-110 MiB of geometry and uniforms.
-        // Grant 128 MiB per frame region with 16 MiB present scratch and 24 MiB index buffer
-        // to guarantee no geometry, trees, character models, or HUD elements are ever dropped.
-        vertex_buffer_bytes = 128u * 1024u * 1024u;
-        index_buffer_bytes = 24u * 1024u * 1024u;
+        // Complex multi-pass areas (e.g. Desert stage112 with vast dunes and oasis water,
+        // Snowy Mountains Area 5 ice cave reflection passes, and Jungle canopy with dense trees)
+        // submit 110-150 MiB of geometry and uniforms.
+        // Grant 160 MiB per frame region with 16 MiB present scratch and 32 MiB index buffer
+        // to guarantee no geometry, trees, oasis, character models, or HUD elements are ever dropped.
+        vertex_buffer_bytes = 160u * 1024u * 1024u;
+        index_buffer_bytes = 32u * 1024u * 1024u;
         present_scratch_bytes = 16u * 1024u * 1024u;
 
         if (const char *env_vert = std::getenv("MHP3RD_VERTEX_BUFFER_MIB")) {

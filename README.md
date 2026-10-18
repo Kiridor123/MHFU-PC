@@ -50,6 +50,7 @@ Queremos expresar nuestro más sincero agradecimiento y crédito a todos los con
   - Permite elegir la ubicación de guardado (por defecto en `%APPDATA%/Pokke/ULUS10391/` o modo portátil en `./data/`).
 - **Menú de Configuración en el Juego con tecla `F1`**:
   - Presiona **`F1`** (o `Esc` / `L3+R3` en mando) en cualquier momento de la partida para abrir el menú en tiempo real.
+  - Para una explicación detallada de cada opción y preajustes recomendados (1080p 60 FPS, bajo consumo, etc.), consulta la **[Guía de Configuración y Rendimiento](docs/GUIA_CONFIGURACION.md)**.
 - **Resolución Arbitraria y Escalado Gráfico**:
   - Escalado interno desde **1x PSP (480×272)** hasta **6x (4K / 3840×2160)**.
   - Modos de ventana libre, pantalla completa exclusiva y soporte para monitores ultra-panorámicos (Ultrawide).

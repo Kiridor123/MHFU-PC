@@ -1,6 +1,7 @@
 #include "ui/widgets.hpp"
 
 #include "ui/layer.hpp"
+#include "ui/ui_localization.hpp"
 
 #include "gpu/vulkan_renderer.hpp"
 
@@ -93,11 +94,12 @@ Row row(const char *label, const RowOptions &options, ImU32 color = colors::kTex
         draw->AddRectFilled(result.min, result.max, colors::kRowHover, rounding);
     }
     const float text_y = result.min.y + (height - font()) * 0.5f;
+    const char *display_label = tr(label);
     draw->AddText(
-        {result.min.x + px(16.0f), text_y}, options.disabled ? colors::kTextDisabled : color, label, shown_end(label));
+        {result.min.x + px(16.0f), text_y}, options.disabled ? colors::kTextDisabled : color, display_label, shown_end(display_label));
     if (result.focused || (result.hovered && Layer::get().description().empty())) {
-        std::string description = options.description;
-        if (!options.note.empty()) description += (description.empty() ? "" : "\n") + options.note;
+        std::string description = tr(options.description);
+        if (!options.note.empty()) description += (description.empty() ? "" : "\n") + tr(options.note);
         Layer::get().set_description(description);
     }
     return result;
@@ -318,9 +320,10 @@ void begin_panel(const char *id, const std::string &title, const std::string &su
     draw->AddLine({center.x + cross_r, center.y - cross_r}, {center.x - cross_r, center.y + cross_r}, cross_col, px(2.0f));
 
     if (!subtitle.empty()) {
-        const float width = ImGui::CalcTextSize(subtitle.c_str()).x;
+        const char *display_sub = tr(subtitle.c_str());
+        const float width = ImGui::CalcTextSize(display_sub).x;
         const float right = btn_pos.x - px(10.0f);
-        draw->AddText({right - width, title_at.y + title_height - font() * 1.15f}, colors::kTextDim, subtitle.c_str());
+        draw->AddText({right - width, title_at.y + title_height - font() * 1.15f}, colors::kTextDim, display_sub);
     }
     const ImVec2 line = ImGui::GetCursorScreenPos();
     const float line_width = ImGui::GetContentRegionAvail().x;
@@ -424,7 +427,7 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
     const float inner_left = start.x + cap_left + px(14.0f);
     const float inner_width = width - cap_left - std::max(font() * 1.15f, cap_right_width) - px(28.0f);
     float label_width = 0.0f;
-    for (int i = 0; i < count; ++i) label_width = std::max(label_width, ImGui::CalcTextSize(labels[i]).x);
+    for (int i = 0; i < count; ++i) label_width = std::max(label_width, ImGui::CalcTextSize(tr(labels[i])).x);
     const float tab_width = std::max(inner_width / static_cast<float>(std::min(count, 6)), label_width + px(24.0f));
     const float total_width = tab_width * static_cast<float>(count);
     const bool scrollable = total_width > inner_width;
@@ -456,9 +459,10 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
         ImGui::PopID();
         const bool active = i == selected;
         if (hovered && !active) draw->AddRectFilled(min, max, colors::kRowHover, px(6.0f));
-        const ImVec2 size = ImGui::CalcTextSize(labels[i]);
+        const char *display_label = tr(labels[i]);
+        const ImVec2 size = ImGui::CalcTextSize(display_label);
         draw->AddText({min.x + (tab_width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f},
-            active ? colors::kAccentBright : colors::kTextDim, labels[i]);
+            active ? colors::kAccentBright : colors::kTextDim, display_label);
         if (active)
             draw->AddRectFilled({min.x + tab_width * 0.18f, max.y - px(3.0f)}, {max.x - tab_width * 0.18f, max.y},
                 colors::kAccent, px(2.0f));
@@ -477,8 +481,9 @@ void focus_next_row() {
 int choice_row(const char *label, const std::string &value, const RowOptions &options) {
     const Row r = row(label, options);
     const float mid_y = (r.min.y + r.max.y) * 0.5f;
+    const std::string display_val = tr(value);
     const float right_arrow_x = r.max.x - px(16.0f) - font() * 0.45f;
-    const float value_x = r.max.x - px(16.0f) - font() * 1.1f - ImGui::CalcTextSize(value.c_str()).x;
+    const float value_x = r.max.x - px(16.0f) - font() * 1.1f - ImGui::CalcTextSize(display_val.c_str()).x;
     const float left_arrow_x = value_x - font() * 0.65f;
     int delta = r.focused ? horizontal_press() : 0;
     if (r.pressed) {
@@ -490,7 +495,7 @@ int choice_row(const char *label, const std::string &value, const RowOptions &op
     }
     const bool live = r.focused || r.hovered;
     ImDrawList *draw = ImGui::GetWindowDrawList();
-    draw_value(r, value, options, px(16.0f) + font() * 1.1f, live ? colors::kAccentBright : colors::kText);
+    draw_value(r, display_val, options, px(16.0f) + font() * 1.1f, live ? colors::kAccentBright : colors::kText);
     // A locked row shows its value without the arrows that would change it.
     if (options.disabled) return 0;
     const ImU32 arrow = live ? colors::kAccent : colors::kTextDim;
@@ -517,7 +522,7 @@ bool toggle_row(const char *label, bool value, const RowOptions &options) {
     const ImVec2 knob_center{on ? max.x - height * 0.5f : min.x + height * 0.5f, mid_y};
     draw->AddCircleFilled(knob_center, knob, options.disabled ? colors::kTextDisabled : colors::kText);
     draw_value(
-        r, on ? "On" : "Off", options, px(16.0f) + width + px(12.0f), on ? colors::kAccentBright : colors::kTextDim);
+        r, on ? tr("On") : tr("Off"), options, px(16.0f) + width + px(12.0f), on ? colors::kAccentBright : colors::kTextDim);
     return toggled;
 }
 
@@ -655,7 +660,8 @@ void info_row(const char *label, const std::string &value) {
     const ImVec2 max{min.x + width + px(32.0f), min.y + height};
     if (focused) draw->AddRectFilled(min, max, colors::kRowFocus, px(6.0f));
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.8f);
-    draw->AddText({min.x + px(16.0f), min.y + px(5.0f)}, colors::kTextDim, label, shown_end(label));
+    const char *display_label = tr(label);
+    draw->AddText({min.x + px(16.0f), min.y + px(5.0f)}, colors::kTextDim, display_label, shown_end(display_label));
     ImGui::PopFont();
     draw->AddText(
         nullptr, 0.0f, {min.x + px(16.0f), min.y + font() * 0.95f}, colors::kText, value.c_str(), nullptr, width);
@@ -666,7 +672,7 @@ void section(const char *title) {
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.8f);
     ImGui::PushStyleColor(ImGuiCol_Text, colors::kAccent);
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + px(16.0f));
-    ImGui::TextUnformatted(title);
+    ImGui::TextUnformatted(tr(title));
     ImGui::PopStyleColor();
     ImGui::PopFont();
     ImGui::Dummy({0.0f, px(2.0f)});
@@ -700,9 +706,10 @@ bool big_button(const char *label, float width, bool primary, bool disabled) {
     if (focused && !disabled)
         draw->AddRect({min.x - px(3.0f), min.y - px(3.0f)}, {max.x + px(3.0f), max.y + px(3.0f)}, colors::kAccentBright,
             rounding + px(3.0f), 0, px(2.0f));
-    const char *end = shown_end(label);
-    const ImVec2 size = ImGui::CalcTextSize(label, end);
-    draw->AddText({min.x + (width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f}, text, label, end);
+    const char *display_label = tr(label);
+    const char *end = shown_end(display_label);
+    const ImVec2 size = ImGui::CalcTextSize(display_label, end);
+    draw->AddText({min.x + (width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f}, text, display_label, end);
     return pressed && !disabled;
 }
 
@@ -847,8 +854,9 @@ void hints(std::initializer_list<Hint> list) {
             }
             break;
         }
-        draw->AddText({x + px(2.0f), at.y}, colors::kTextDim, hint.text);
-        at.x = x + ImGui::CalcTextSize(hint.text).x + px(26.0f);
+        const char *display_hint = tr(hint.text);
+        draw->AddText({x + px(2.0f), at.y}, colors::kTextDim, display_hint);
+        at.x = x + ImGui::CalcTextSize(display_hint).x + px(26.0f);
     }
     // Room for what was drawn, so a window around the hints can fit them.
     ImGui::Dummy({std::max(0.0f, at.x - start.x - px(24.0f)), font()});

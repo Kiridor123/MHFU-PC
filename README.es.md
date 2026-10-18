@@ -123,7 +123,7 @@ Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/
 
 En un mando, los botones están donde esperas: en un mando de PlayStation el círculo confirma y la equis vuelve atrás, como indican los mensajes del juego, y el stick derecho mueve la cámara y el apuntado. Los preajustes de control (Default, Modern con los ataques en los gatillos, Left-handed, Classic keyboard y los tuyos propios) abarcan todas las acciones, y cualquiera puede asignarse a un solo botón o a una combinación como L1 + ○. El control con teclado y ratón es completo; de forma predeterminada, WASD mueve al personaje, el ratón controla la cámara y sus botones atacan. Las tablas completas están en el [README del perfil](profiles/mhp3rd/README.md#running).
 
-Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo. Reúne los ajustes de vídeo, audio, controles, red y partidas, incluidos la relación de aspecto, la frecuencia de fotogramas, la resolución interna y la importación de texturas HD. El primer arranque prepara el juego a partir de tu imagen de disco en la misma ventana, y basta con un mando para hacerlo.
+Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo. Reúne los ajustes de vídeo, audio, controles, red y partidas, incluidos la relación de aspecto, la frecuencia de fotogramas, la resolución interna y la importación de texturas HD. Consulta la [Guía de Configuración y Rendimiento](docs/GUIA_CONFIGURACION.md) para conocer en detalle cada opción y los perfiles recomendados (1080p 60 FPS, Steam Deck, PCs modestas). El primer arranque prepara el juego a partir de tu imagen de disco en la misma ventana, y basta con un mando para hacerlo.
 
 ## Hoja de ruta
 
