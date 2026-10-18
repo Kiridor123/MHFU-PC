@@ -15,7 +15,7 @@ deps="$work/deps"
 sources="$work/sources"
 dist="$work/dist"
 jobs="${POKKE_JOBS:-4}"
-output_apk="${POKKE_OUTPUT_APK:-$repo_dir/Pokke-v1.2.2-android-arm64.apk}"
+output_apk="${POKKE_OUTPUT_APK:-$repo_dir/Pokke-v1.3.0-android-arm64.apk}"
 
 mkdir -p "$work" "$deps" "$sources" "$dist" "$build"
 
@@ -88,8 +88,8 @@ cmake --build "$build" -j "$jobs"
 
 # 6. Package APK
 step "Packaging Android APK: $output_apk"
-VERSION_NAME="1.2.2" \
-VERSION_CODE=6 \
+VERSION_NAME="1.3.0" \
+VERSION_CODE=8 \
 FONT_DIR="$sources" \
 ANDROID_NDK="$ANDROID_NDK" \
 ANDROID_HOME="$ANDROID_HOME" \

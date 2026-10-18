@@ -142,6 +142,10 @@ struct Settings {
     input::touch::ActionLayout touch_action{input::touch::default_action_layout()};
     input::touch::PspLayout touch_psp{input::touch::default_psp_layout()};
     bool touch_haptics{true};
+    float touch_chat_x{-1.0f};        // on-screen chat button position (-1: default)
+    float touch_chat_y{-1.0f};
+    float touch_chat_size{1.0f};      // scale 0.5-2.5
+    bool touch_chat_shown{true};      // show chat button on screen
     NameEntry name_entry{NameEntry::Keyboard}; // on-screen keyboard, or the name below at once
     std::string name{"Hunter"};                // the fixed name
 

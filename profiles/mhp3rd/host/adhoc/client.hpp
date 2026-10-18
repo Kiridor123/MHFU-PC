@@ -60,6 +60,12 @@ struct Datagram {
     std::string data;
 };
 
+struct ChatMessage {
+    std::string sender;
+    std::string message;
+    std::uint64_t timestamp_ms{};
+};
+
 enum class StreamState {
     Closed,
     Listening,
@@ -132,6 +138,7 @@ struct Diagnostics {
     Traffic per_second;
     std::uint64_t dropped{};  // datagrams dropped: no link, full buffers, oversized
     std::uint64_t timeouts{}; // blocking ad hoc calls that ended in a PSP timeout
+    std::vector<ChatMessage> chat_history;
 };
 
 class Client {
@@ -161,6 +168,11 @@ public:
     [[nodiscard]] std::vector<Peer> peers() const;
     [[nodiscard]] std::vector<GroupInfo> scan_results() const;
     [[nodiscard]] std::vector<CtlEvent> take_events();
+
+    // In-game adhocctl chat (compatible with PPSSPP chat)
+    void send_chat(std::string_view message);
+    [[nodiscard]] std::vector<ChatMessage> chat_history() const;
+    [[nodiscard]] std::optional<ChatMessage> take_latest_chat();
 
     // Datagram sockets (PDP) ----------------------------------------------------
     // Returns a handle, or 0 when `port` is taken.

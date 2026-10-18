@@ -78,6 +78,36 @@ using Clock = std::chrono::steady_clock;
 // Seconds the "how to open the menu" hint stays up at start, until the menu
 // has been opened once.
 constexpr double kHintSeconds = 12.0;
+
+bool &chat_window_open() {
+    static bool open = false;
+    return open;
+}
+
+int &unread_chat_count() {
+    static int unread = 0;
+    return unread;
+}
+
+bool has_unread_chat() {
+    return unread_chat_count() > 0;
+}
+
+struct ChatToast {
+    std::string sender;
+    std::string message;
+    Clock::time_point until{};
+};
+
+ChatToast &chat_toast() {
+    static ChatToast toast;
+    return toast;
+}
+
+void show_chat_toast(const adhoc::ChatMessage &msg) {
+    chat_toast() = {msg.sender, msg.message, Clock::now() + std::chrono::seconds(6)};
+}
+
 // The longest hunter name the game takes: its name buffer holds 12
 // characters and a terminator.
 constexpr std::size_t kHunterNameLength = 12u;
@@ -139,7 +169,8 @@ MenuPlace &menu_place() {
 
 class Menu {
 public:
-    explicit Menu(bool paused) : paused_(paused), tab_(menu_place().tab) {}
+    explicit Menu(bool paused, bool from_touch_editor = false)
+        : paused_(paused), from_touch_editor_(from_touch_editor), tab_(menu_place().tab) {}
     ~Menu() {
         // The page for the next start, in settings.ini, when it changed.
         std::string name = kTabs[menu_place().tab];
@@ -173,6 +204,7 @@ private:
     gpu::VulkanRenderer &renderer() { return Layer::get().renderer(); }
 
     bool paused_{}; // the game is paused behind the menu, rather than running
+    bool from_touch_editor_{};
     int tab_{};
     bool first_frame_{true};
     bool close_{};
@@ -213,7 +245,10 @@ bool Menu::frame() {
     // The touch layout's editor takes the whole screen until it is done.
     if (touch_editor_open()) {
         touch_editor_frame(back_);
-        if (!touch_editor_open()) focus_next_row();
+        if (!touch_editor_open()) {
+            focus_next_row();
+            if (from_touch_editor_) return false;
+        }
         return true;
     }
 
@@ -1092,6 +1127,19 @@ void Menu::controls() {
                     "Move, resize, rebind and hide the selected layout's elements, over "
                     "the game. Kept on this device."})))
             open_touch_editor();
+        if (toggle_row(is_spanish() ? "Botón de Chat" : "Chat Button", s.touch_chat_shown,
+                off({false, {},
+                    is_spanish() ? "Muestra el botón de chat en pantalla para abrir el chat online al tocarlo."
+                                 : "Shows the chat button on screen to open online chat on tap."}))) {
+            s.touch_chat_shown = !s.touch_chat_shown;
+            settings::save();
+        }
+        int chat_size_pct = static_cast<int>(std::lround(s.touch_chat_size * 100.0f));
+        if (slider_row(is_spanish() ? "Tamaño Botón de Chat" : "Chat Button Size", chat_size_pct, 50, 200, 5, "%d%%",
+                off({false, {}, is_spanish() ? "Tamaño del botón de chat en pantalla." : "On-screen chat button size."}))) {
+            s.touch_chat_size = static_cast<float>(chat_size_pct) / 100.0f;
+            settings::save();
+        }
         if (toggle_row("Haptic Feedback", s.touch_haptics,
                 off(options_for("input.touch_haptics",
                     "A short vibration when a touch button is pressed, a D-pad direction changes or a swipe is "
@@ -1379,6 +1427,20 @@ void Menu::network() {
                 "Applies the next time the game goes on line."))) {
         settings::save();
         adhoc_apply_settings();
+    }
+
+    section("Chat (PPSSPP):");
+    {
+        const auto history = client.chat_history();
+        std::string preview = history.empty() ? (is_spanish() ? "Sin mensajes" : "No messages")
+                                              : ("(" + std::to_string(history.size()) + (is_spanish() ? " mensajes)" : " messages)"));
+        info_row("Messages", preview);
+        if (button_row("Open Chat Window…",
+                {false, {},
+                    "Open the in-game chat window to send and read messages with PPSSPP and Pokke players in the hall."})) {
+            chat_window_open() = true;
+            unread_chat_count() = 0;
+        }
     }
 
     section("Status:");
@@ -2162,6 +2224,194 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
         }
     }
 }
+
+void draw_chat_unread_bubble(int unread_count) {
+    if (unread_count <= 0) return;
+    const ImGuiIO &io = ImGui::GetIO();
+    const float font_size = Layer::get().font_size();
+    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    ImFont *font = ImGui::GetFont();
+
+    const float pad_x = font_size * 0.7f;
+    const float h = font_size * 2.1f;
+    const float r = h * 0.5f;
+
+    const std::string count_str = unread_count > 99 ? "99+" : std::to_string(unread_count);
+    const std::string label = is_spanish() ? "Chat Online" : "Online Chat";
+    const std::string hint = " [LT / F8]";
+    const std::string full_text = label + hint;
+
+    const float icon_w = font_size * 1.3f;
+    const ImVec2 text_extent = font->CalcTextSizeA(font_size * 0.85f, 1e9f, 0.0f, full_text.c_str());
+    const ImVec2 count_extent = font->CalcTextSizeA(font_size * 0.75f, 1e9f, 0.0f, count_str.c_str());
+    const float badge_w = std::max(count_extent.x + 8.0f, font_size * 1.2f);
+    const float total_w = pad_x * 2.0f + icon_w + badge_w + text_extent.x + font_size * 0.5f;
+
+    const float x0 = font_size * 1.5f;
+    const float y0 = font_size * 1.5f;
+    const float x1 = x0 + total_w;
+    const float y1 = y0 + h;
+
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        const ImVec2 m = io.MousePos;
+        if (m.x >= x0 && m.x <= x1 && m.y >= y0 && m.y <= y1) {
+            bool &chat_open = chat_window_open();
+            chat_open = true;
+            unread_chat_count() = 0;
+            Layer::get().set_interactive(true);
+            Layer::get().renderer().set_game_input(false);
+            return;
+        }
+    }
+
+    draw->AddRectFilled({x0, y0}, {x1, y1}, IM_COL32(20, 26, 38, 235), r);
+    draw->AddRect({x0, y0}, {x1, y1}, IM_COL32(90, 185, 255, 220), r, 0, 1.8f);
+
+    const float cy = y0 + h * 0.5f;
+    const float ix = x0 + pad_x + icon_w * 0.45f;
+    const float bubble_w = font_size * 1.1f;
+    const float bubble_h = font_size * 0.75f;
+    draw->AddRectFilled({ix - bubble_w * 0.5f, cy - bubble_h * 0.55f},
+        {ix + bubble_w * 0.5f, cy + bubble_h * 0.45f}, IM_COL32(100, 190, 255, 80), 4.0f);
+    draw->AddRect({ix - bubble_w * 0.5f, cy - bubble_h * 0.55f},
+        {ix + bubble_w * 0.5f, cy + bubble_h * 0.45f}, IM_COL32(140, 215, 255, 255), 4.0f, 0, 1.4f);
+    draw->AddTriangleFilled({ix - bubble_w * 0.3f, cy + bubble_h * 0.45f - 1.0f},
+        {ix - bubble_w * 0.05f, cy + bubble_h * 0.45f - 1.0f},
+        {ix - bubble_w * 0.4f, cy + bubble_h * 0.75f}, IM_COL32(140, 215, 255, 255));
+
+    const float bx = x0 + pad_x + icon_w + badge_w * 0.5f;
+    draw->AddCircleFilled({bx, cy}, badge_w * 0.5f, IM_COL32(235, 45, 45, 255));
+    draw->AddCircle({bx, cy}, badge_w * 0.5f, IM_COL32(255, 255, 255, 240), 0, 1.2f);
+    draw->AddText(font, font_size * 0.75f,
+        {bx - count_extent.x * 0.5f, cy - count_extent.y * 0.5f},
+        IM_COL32(255, 255, 255, 255), count_str.c_str());
+
+    const float tx = bx + badge_w * 0.5f + font_size * 0.4f;
+    draw->AddText(font, font_size * 0.85f,
+        {tx, cy - text_extent.y * 0.5f},
+        IM_COL32(240, 245, 255, 255), full_text.c_str());
+}
+
+void draw_chat_toast(const ChatToast &toast) {
+    if (toast.message.empty()) return;
+    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    const ImGuiIO &io = ImGui::GetIO();
+    ImFont *font = ImGui::GetFont();
+    const float font_size = Layer::get().font_size();
+
+    std::string full_text = "[" + toast.sender + "]: " + toast.message;
+    const ImVec2 text_size = font->CalcTextSizeA(font_size, 1e9f, 0.0f, full_text.c_str());
+    const float pad_x = font_size * 0.8f;
+    const float pad_y = font_size * 0.4f;
+    const float box_w = std::min(text_size.x + pad_x * 2.0f, io.DisplaySize.x - font_size * 2.0f);
+    const float box_h = text_size.y + pad_y * 2.0f;
+
+    const float x0 = (io.DisplaySize.x - box_w) * 0.5f;
+    const float y0 = font_size * 3.2f;
+    const float x1 = x0 + box_w;
+    const float y1 = y0 + box_h;
+
+    const double remaining = std::chrono::duration<double>(toast.until - Clock::now()).count();
+    const float alpha = static_cast<float>(std::clamp(remaining, 0.0, 1.0));
+
+    const ImU32 bg_col = IM_COL32(20, 25, 35, static_cast<int>(alpha * 225.0f));
+    const ImU32 border_col = IM_COL32(100, 190, 255, static_cast<int>(alpha * 200.0f));
+    const ImU32 text_col = IM_COL32(240, 245, 255, static_cast<int>(alpha * 255.0f));
+
+    draw->AddRectFilled({x0, y0}, {x1, y1}, bg_col, 8.0f);
+    draw->AddRect({x0, y0}, {x1, y1}, border_col, 8.0f, 0, 1.5f);
+    draw->AddText(font, font_size, {x0 + pad_x, y0 + pad_y}, text_col, full_text.c_str());
+}
+
+void draw_chat_dialog(bool &open) {
+    if (!open) return;
+    unread_chat_count() = 0;
+    const ImGuiIO &io = ImGui::GetIO();
+
+    const float win_w = std::clamp(io.DisplaySize.x * 0.70f, 320.0f, 540.0f);
+    const float win_h = std::clamp(io.DisplaySize.y * 0.50f, 220.0f, 360.0f);
+    ImGui::SetNextWindowSize({win_w, win_h}, ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(
+        {(io.DisplaySize.x - win_w) * 0.5f, (io.DisplaySize.y - win_h) * 0.5f},
+        ImGuiCond_Appearing);
+
+    std::string title = is_spanish() ? "Chat Online (PPSSPP)###adhoc_chat" : "Online Chat (PPSSPP)###adhoc_chat";
+    if (ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoCollapse)) {
+        static char input_buf[128] = "";
+        static bool scroll_to_bottom = false;
+
+        const float footer_h = ImGui::GetFrameHeightWithSpacing() + 6.0f;
+        if (ImGui::BeginChild("ChatHistory", ImVec2(0, -footer_h), true, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+            const auto history = adhoc::Client::get().chat_history();
+            if (history.empty()) {
+                ImGui::TextDisabled("%s", is_spanish() ? "No hay mensajes aún." : "No messages yet.");
+            } else {
+                for (const auto &item : history) {
+                    const bool is_me = (item.sender == "Me" ||
+                        (!settings::current().adhoc_nickname.empty() && item.sender == settings::current().adhoc_nickname));
+                    if (is_me) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 215, 100, 255));
+                    } else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(110, 200, 255, 255));
+                    }
+                    ImGui::Text("[%s]:", item.sender.c_str());
+                    ImGui::PopStyleColor();
+                    ImGui::SameLine();
+                    ImGui::TextWrapped("%s", item.message.c_str());
+                }
+            }
+            if (scroll_to_bottom) {
+                ImGui::SetScrollHereY(1.0f);
+                scroll_to_bottom = false;
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        const float send_w = 70.0f;
+        const float type_btn_w = 95.0f;
+
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
+
+        bool send = false;
+        ImGui::SetNextItemWidth(std::max(60.0f, ImGui::GetContentRegionAvail().x - send_w - type_btn_w - 12.0f));
+        if (ImGui::InputText("##chat_text", input_buf, sizeof(input_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
+            send = true;
+        }
+        ImGui::SameLine();
+        const char *type_label = is_spanish() ? "Escribir…" : "Type…";
+        if (ImGui::Button(type_label, ImVec2(type_btn_w, 0))) {
+            TextInputRequest req;
+            req.title = is_spanish() ? "Mensaje de Chat" : "Chat Message";
+            req.prompt = is_spanish() ? "Escribe un mensaje para los cazadores en la sala:" : "Type a message for hunters in the hall:";
+            req.initial = input_buf;
+            req.max_length = 60;
+            open_text_input(std::move(req), [](std::optional<std::string> result) {
+                if (result && !result->empty()) {
+                    adhoc::Client::get().send_chat(*result);
+                }
+            });
+        }
+        ImGui::SameLine();
+        const char *send_label = is_spanish() ? "Enviar" : "Send";
+        if (ImGui::Button(send_label, ImVec2(send_w, 0))) {
+            send = true;
+        }
+        if (send && input_buf[0] != '\0') {
+            adhoc::Client::get().send_chat(input_buf);
+            input_buf[0] = '\0';
+            scroll_to_bottom = true;
+            ImGui::SetKeyboardFocusHere(-3);
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            open = false;
+        }
+    }
+    ImGui::End();
+}
 } // namespace
 
 void set_lock_on_marker(std::optional<std::array<float, 2>> at) {
@@ -2201,6 +2451,50 @@ void draw_over_game() {
     if (!layer.attached()) return;
     script::tick();
     std::optional<Menu> &menu = menu_over_game_state();
+
+    if (const auto latest = adhoc::Client::get().take_latest_chat()) {
+        show_chat_toast(*latest);
+        if (!chat_window_open()) {
+            unread_chat_count()++;
+        }
+    }
+
+    if (!menu && layer.renderer().take_touch_edit()) {
+        open_touch_editor_over_game();
+    }
+    const bool chat_toggled = layer.renderer().take_chat_toggle() || layer.renderer().take_touch_chat();
+    if (chat_toggled) {
+        bool &chat_open = chat_window_open();
+        chat_open = !chat_open;
+        if (chat_open) {
+            unread_chat_count() = 0;
+            layer.set_interactive(true);
+            layer.renderer().set_game_input(false);
+        } else if (!menu) {
+            layer.set_interactive(false);
+            layer.renderer().set_game_input(true);
+        }
+    }
+
+    // Keyboard hotkeys for chat on desktop/Linux (T or F8 to open/close)
+    if (!menu && !text_input_open()) {
+        const ImGuiIO &io = ImGui::GetIO();
+        const bool hotkey = ImGui::IsKeyPressed(ImGuiKey_F8, false) ||
+            (!chat_window_open() && ImGui::IsKeyPressed(ImGuiKey_T, false) && !io.WantTextInput);
+        if (hotkey) {
+            bool &chat_open = chat_window_open();
+            chat_open = !chat_open;
+            if (chat_open) {
+                unread_chat_count() = 0;
+                layer.set_interactive(true);
+                layer.renderer().set_game_input(false);
+            } else {
+                layer.set_interactive(false);
+                layer.renderer().set_game_input(true);
+            }
+        }
+    }
+
     // The game's keyboard request: drawn over every game frame until done. A
     // keyboard opened from the menu over the running game is the menu's.
     if (text_input_open() && !menu) {
@@ -2216,6 +2510,8 @@ void draw_over_game() {
     const double hint_left = menu || settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
     const bool overlay = network_overlay();
     const bool touch = !menu && layer.renderer().touch_controls_visible();
+    const bool show_android_chat = (settings::kPlatform == settings::Platform::Android) &&
+        settings::current().touch_chat_shown && !menu;
     const std::string gpu_problem = menu || gpu_problem_seen() ? std::string() : layer.renderer().gpu_problem();
     const camera::FreeCameraStatus free_camera = camera::free_camera_status();
     const bool flying = free_camera.active && !menu && !layer.renderer().window_capture_pending();
@@ -2224,8 +2520,11 @@ void draw_over_game() {
         !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted &&
-        !compat_noted && hud_note <= 0.0 && !marker)
+    const bool chat_active = chat_window_open();
+    const bool toast_active = !chat_active && Clock::now() < chat_toast().until;
+    const bool unread_bubble_active = unread_chat_count() > 0 && !chat_active;
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && !show_android_chat && gpu_problem.empty() && !flying && !fast && !noted &&
+        !compat_noted && hud_note <= 0.0 && !marker && !chat_active && !toast_active && !unread_bubble_active)
         return;
     layer.begin_frame();
     if (marker) draw_lock_on_marker(*marker);
@@ -2242,12 +2541,33 @@ void draw_over_game() {
                 draw_touch_controls(layer.renderer().touch_controls(), player.touch_opacity);
         }
         draw_hud_toggle_button(layer.renderer().hud_toggle_circle(), player.touch_opacity, hidden);
+        draw_edit_touch_button(layer.renderer().edit_touch_circle(), player.touch_opacity);
+        if (player.touch_chat_shown) {
+            draw_chat_toggle_button(layer.renderer().chat_toggle_circle(), player.touch_opacity, unread_chat_count());
+        }
+    } else if (show_android_chat) {
+        draw_chat_toggle_button(layer.renderer().chat_toggle_circle(), settings::current().touch_opacity, unread_chat_count());
+    }
+    if (unread_bubble_active && !touch && !show_android_chat) {
+        draw_chat_unread_bubble(unread_chat_count());
     }
     if (hint_left > 0.0) draw_hint(hint_left);
     if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);
     if (overlay) draw_network_overlay();
     if (fast) draw_fast_forward();
     if (hud_note > 0.0) draw_hud_note(hud_note, flying);
+    if (toast_active) draw_chat_toast(chat_toast());
+    if (chat_active) {
+        bool was_open = true;
+        draw_chat_dialog(was_open);
+        if (!was_open) {
+            chat_window_open() = false;
+            if (!menu) {
+                layer.set_interactive(false);
+                layer.renderer().set_game_input(true);
+            }
+        }
+    }
     if (menu && !menu->frame()) {
         const bool quit = menu->quit() || layer.window_closed();
         menu.reset();
@@ -2272,6 +2592,20 @@ void open_menu_over_game() {
     layer.renderer().set_game_input(false);
     layer.set_interactive(true);
     menu.emplace(false);
+}
+
+void open_touch_editor_over_game() {
+    std::optional<Menu> &menu = menu_over_game_state();
+    if (menu) {
+        open_touch_editor();
+        return;
+    }
+    Layer &layer = Layer::get();
+    note_menu_opened(false);
+    layer.renderer().set_game_input(false);
+    layer.set_interactive(true);
+    menu.emplace(false, true);
+    open_touch_editor();
 }
 
 bool menu_over_game() {

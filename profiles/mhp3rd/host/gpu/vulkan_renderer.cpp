@@ -1100,8 +1100,14 @@ struct VulkanRenderer::Impl {
 #else
     bool touch_visible{};
 #endif
-    bool touch_hud_hidden{false};
+    bool touch_hud_hidden_{false};
     input::touch::Circle hud_toggle_circle{};
+    input::touch::Circle edit_touch_circle{};
+    input::touch::Circle chat_toggle_circle{};
+    bool touch_edit_tapped_{false};
+    bool touch_chat_tapped_{false};
+    bool chat_toggle_pressed_{false};
+    bool chat_button_held{false};
     bool real_mouse_seen{};
     MouseMotion touch_motion{};
     struct TouchLayoutKey {
@@ -1171,7 +1177,14 @@ struct VulkanRenderer::Impl {
         const float right = w - touch_insets.right;
         const float top = touch_insets.top;
         const float middle = (left + right) * 0.5f;
-        hud_toggle_circle = {{middle + small * 6.0f, top + small * 1.6f}, small};
+        const float chat_scale = std::clamp(player.touch_chat_size, 0.5f, 2.5f);
+        if (player.touch_chat_x >= 0.0f && player.touch_chat_y >= 0.0f) {
+            chat_toggle_circle = {{player.touch_chat_x * w, player.touch_chat_y * h}, small * chat_scale};
+        } else {
+            chat_toggle_circle = {{middle - small * 3.5f, top + small * 1.6f}, small * chat_scale};
+        }
+        edit_touch_circle = {{middle + small * 3.5f, top + small * 1.6f}, small};
+        hud_toggle_circle = {{middle + small * 7.0f, top + small * 1.6f}, small};
     }
     [[nodiscard]] static bool action_layout() {
         return settings::current().touch_layout == settings::TouchLayout::Action;
@@ -1209,18 +1222,32 @@ struct VulkanRenderer::Impl {
             event.tfinger.x * static_cast<float>(width), event.tfinger.y * static_cast<float>(height)};
         const std::uint64_t id = event.tfinger.fingerID;
         if (event.type == SDL_EVENT_FINGER_DOWN) {
-            if (hud_toggle_circle.contains(at, 1.4f)) {
-                touch_hud_hidden = !touch_hud_hidden;
-                touch_visible = !touch_hud_hidden;
+            if (edit_touch_circle.contains(at, 1.4f)) {
+                touch_edit_tapped_ = true;
                 touch.release_all();
                 action_touch.release_all();
                 lock_on_touch_tap = {};
                 return;
             }
-            if (touch_hud_hidden) return;
+            if (chat_toggle_circle.contains(at, 1.4f)) {
+                touch_chat_tapped_ = true;
+                touch.release_all();
+                action_touch.release_all();
+                lock_on_touch_tap = {};
+                return;
+            }
+            if (hud_toggle_circle.contains(at, 1.4f)) {
+                touch_hud_hidden_ = !touch_hud_hidden_;
+                touch_visible = !touch_hud_hidden_;
+                touch.release_all();
+                action_touch.release_all();
+                lock_on_touch_tap = {};
+                return;
+            }
+            if (touch_hud_hidden_) return;
             touch_visible = true;
         }
-        if (touch_hud_hidden) return;
+        if (touch_hud_hidden_) return;
         input::touch::Point drag;
         const bool r3_before = touch_r3_held();
         if (action_layout()) {
@@ -6045,15 +6072,26 @@ void VulkanRenderer::Impl::sample_host_binds(bool focused) {
     input::PadState pressed = typed;
     pressed.screenshot = pressed.screenshot || touch_mapped.screenshot;
     pressed.frame_step = pressed.frame_step || touch_mapped.frame_step;
+    pressed.chat = pressed.chat || touch_mapped.chat;
     if (gamepad != nullptr) {
         pressed.screenshot = pressed.screenshot || mapped.screenshot;
         pressed.frame_step = pressed.frame_step || mapped.frame_step;
+        pressed.chat = pressed.chat || mapped.chat;
+        const PadTuning tuning = pad_tuning();
+        if (pad_input_held(gamepad, input::pad(input::PadInput::LeftTrigger), tuning)) {
+            pressed.chat = true;
+        }
     }
     // Nothing while a menu or the on-screen keyboard has the input; a press
     // counts when it goes down, so one held as the menu closes does not.
     if (pressed.screenshot && !screenshot_held && game_input) screenshot_request = true;
     screenshot_held = pressed.screenshot;
     frame_step = pressed.frame_step && game_input;
+
+    if (pressed.chat && !chat_button_held && game_input) {
+        chat_toggle_pressed_ = true;
+    }
+    chat_button_held = pressed.chat;
 }
 
 void VulkanRenderer::Impl::sample_hide_hud(bool focused) {
@@ -6280,7 +6318,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     if (impl_->gamepad != nullptr && (focused || player.background_gamepad))
         read_gamepad(impl_->gamepad, impl_->mapped, pad, analog_x, analog_y);
     // So do the on-screen controls.
-    if (impl_->touch_visible && !impl_->touch_hud_hidden) {
+    if (impl_->touch_visible && !impl_->touch_hud_hidden_) {
         const bool action = Impl::action_layout();
         const std::uint32_t touch_buttons = action ? impl_->action_touch.buttons(SDL_GetTicks()) : impl_->touch.buttons();
         pad.buttons |= touch_buttons;
@@ -6352,19 +6390,27 @@ PadState VulkanRenderer::pad() const noexcept {
 
 bool VulkanRenderer::touch_controls_visible() const noexcept {
     return impl_ && impl_->game_input && settings::current().touch_controls &&
-        (impl_->touch_visible || impl_->touch_hud_hidden);
+        (impl_->touch_visible || impl_->touch_hud_hidden_);
 }
 
 bool VulkanRenderer::touch_hud_hidden() const noexcept {
-    return impl_ && impl_->touch_hud_hidden;
+    return impl_ && impl_->touch_hud_hidden_;
 }
 
 void VulkanRenderer::set_touch_hud_hidden(bool hidden) noexcept {
-    if (impl_) impl_->touch_hud_hidden = hidden;
+    if (impl_) impl_->touch_hud_hidden_ = hidden;
 }
 
 input::touch::Circle VulkanRenderer::hud_toggle_circle() const noexcept {
     return impl_ ? impl_->hud_toggle_circle : input::touch::Circle{};
+}
+
+input::touch::Circle VulkanRenderer::edit_touch_circle() const noexcept {
+    return impl_ ? impl_->edit_touch_circle : input::touch::Circle{};
+}
+
+input::touch::Circle VulkanRenderer::chat_toggle_circle() const noexcept {
+    return impl_ ? impl_->chat_toggle_circle : input::touch::Circle{};
 }
 
 const input::touch::Controls &VulkanRenderer::touch_controls() const {
@@ -6382,6 +6428,18 @@ bool VulkanRenderer::take_touch_menu() noexcept {
     const bool psp = impl_->touch.take_menu();
     const bool action = impl_->action_touch.take_menu();
     return psp || action;
+}
+
+bool VulkanRenderer::take_touch_edit() noexcept {
+    return impl_ && std::exchange(impl_->touch_edit_tapped_, false);
+}
+
+bool VulkanRenderer::take_touch_chat() noexcept {
+    return impl_ && std::exchange(impl_->touch_chat_tapped_, false);
+}
+
+bool VulkanRenderer::take_chat_toggle() noexcept {
+    return impl_ && std::exchange(impl_->chat_toggle_pressed_, false);
 }
 
 const input::touch::ActionControls &VulkanRenderer::action_touch_controls() const {

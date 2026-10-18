@@ -402,6 +402,75 @@ void draw_hud_toggle_button(const input::touch::Circle &circle, float opacity, b
     }
 }
 
+void draw_edit_touch_button(const input::touch::Circle &circle, float opacity) {
+    if (circle.radius <= 0.0f) return;
+    ImDrawList *list = ImGui::GetBackgroundDrawList();
+    const ImVec2 c{circle.centre.x, circle.centre.y};
+    const float r = circle.radius;
+    const float base = std::clamp(opacity, 0.25f, 1.0f);
+    const float thickness = std::max(1.5f, r * 0.08f);
+
+    list->AddCircleFilled(c, r, colour(0, 0, 0, base * 0.5f));
+    list->AddCircle(c, r + thickness, colour(0, 0, 0, base * 0.6f), 0, thickness);
+    list->AddCircle(c, r, colour(236, 190, 96, base * 0.85f), 0, thickness);
+
+    ImFont *font = ImGui::GetFont();
+    const char *text = "EDIT";
+    const float size = r * 0.58f;
+    const ImVec2 extent = font->CalcTextSizeA(size, 1e9f, 0.0f, text);
+    const ImU32 ink = colour(255, 230, 140, base * 0.95f);
+    list->AddText(font, size, {c.x - extent.x * 0.5f, c.y - extent.y * 0.5f}, ink, text);
+}
+
+void draw_chat_toggle_button(const input::touch::Circle &circle, float opacity, int unread_count) {
+    if (circle.radius <= 0.0f) return;
+    ImDrawList *list = ImGui::GetBackgroundDrawList();
+    const ImVec2 c{circle.centre.x, circle.centre.y};
+    const float r = circle.radius;
+    const float base = std::clamp(opacity, 0.25f, 1.0f);
+    const float thickness = std::max(1.5f, r * 0.08f);
+
+    list->AddCircleFilled(c, r, colour(15, 20, 30, base * 0.65f));
+    list->AddCircle(c, r + thickness, colour(0, 0, 0, base * 0.6f), 0, thickness);
+    list->AddCircle(c, r, colour(100, 190, 255, base * 0.85f), 0, thickness);
+
+    // Draw speech bubble icon
+    const float icon_w = r * 0.80f;
+    const float icon_h = r * 0.52f;
+    const ImVec2 b_min{c.x - icon_w * 0.5f, c.y - icon_h * 0.5f - r * 0.08f};
+    const ImVec2 b_max{c.x + icon_w * 0.5f, c.y + icon_h * 0.5f - r * 0.08f};
+    list->AddRectFilled(b_min, b_max, colour(80, 170, 245, base * 0.35f), r * 0.18f);
+    list->AddRect(b_min, b_max, colour(120, 210, 255, base * 0.90f), r * 0.18f, 0, 1.5f);
+    // Speech bubble triangle tail:
+    const ImVec2 tail_p1{b_min.x + icon_w * 0.25f, b_max.y - 1.0f};
+    const ImVec2 tail_p2{b_min.x + icon_w * 0.45f, b_max.y - 1.0f};
+    const ImVec2 tail_tip{b_min.x + icon_w * 0.15f, b_max.y + r * 0.22f};
+    list->AddTriangleFilled(tail_p1, tail_p2, tail_tip, colour(120, 210, 255, base * 0.90f));
+
+    ImFont *font = ImGui::GetFont();
+    const char *text = "CHAT";
+    const float size = r * 0.38f;
+    const ImVec2 extent = font->CalcTextSizeA(size, 1e9f, 0.0f, text);
+    const ImU32 ink = colour(230, 245, 255, base * 0.98f);
+    list->AddText(font, size, {c.x - extent.x * 0.5f, (b_min.y + b_max.y) * 0.5f - extent.y * 0.5f}, ink, text);
+
+    if (unread_count > 0) {
+        const std::string count_str = unread_count > 99 ? "99+" : std::to_string(unread_count);
+        const float badge_font_size = std::max(10.0f, r * 0.48f);
+        const ImVec2 count_extent = font->CalcTextSizeA(badge_font_size, 1e9f, 0.0f, count_str.c_str());
+        const float badge_r = std::max(count_extent.x * 0.5f + 4.0f, r * 0.40f);
+        const ImVec2 dot_pos{c.x + r * 0.68f, c.y - r * 0.65f};
+
+        list->AddCircleFilled(dot_pos, badge_r + 2.0f, colour(255, 60, 60, 0.4f));
+        list->AddCircleFilled(dot_pos, badge_r, colour(235, 45, 45, 0.98f));
+        list->AddCircle(dot_pos, badge_r, colour(255, 255, 255, 0.98f), 0, 1.5f);
+        list->AddText(font, badge_font_size,
+            {dot_pos.x - count_extent.x * 0.5f, dot_pos.y - count_extent.y * 0.5f},
+            colour(255, 255, 255, 1.0f), count_str.c_str());
+    }
+}
+
+
 void draw_psp_element(
     ImDrawList *list, input::touch::PspElement element, const input::touch::Layout &layout, const ElementLook &look) {
     input::touch::Layout single = layout;

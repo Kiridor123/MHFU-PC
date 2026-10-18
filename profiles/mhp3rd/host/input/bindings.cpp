@@ -197,6 +197,7 @@ constexpr ActionInfo kInfo[kActions] = {
     {"item_left", "Item Left  (L + □)"},
     {"item_right", "Item Right  (L + ○)"},
     {"lock_on", "Lock On"},
+    {"chat", "Online Chat"},
 };
 
 // SceCtrlButtons for the actions that are buttons.
@@ -228,6 +229,7 @@ constexpr std::uint32_t kButtonBits[kActions] = {
     0u,
     0x8100u,
     0x2100u,
+    0u,
     0u,
 };
 

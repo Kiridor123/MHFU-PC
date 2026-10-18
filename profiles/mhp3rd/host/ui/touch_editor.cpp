@@ -2,6 +2,7 @@
 
 #include "ui/layer.hpp"
 #include "ui/touch_overlay.hpp"
+#include "ui/ui_localization.hpp"
 #include "ui/widgets.hpp"
 
 #include "gpu/vulkan_renderer.hpp"
@@ -23,6 +24,7 @@ struct State {
     bool open{};
     bool psp{};
     std::optional<std::size_t> selected;
+    bool selected_chat{};
     bool dragging{};
     bool choosing_buttons{};
     ImVec2 grab{};     // the pointer's offset from the element's centre
@@ -120,11 +122,27 @@ void touch_editor_frame(bool back) {
             draw_action_element(list, e, placement(i), placed(i), {}, look);
     }
 
+    const auto chat_circle = Layer::get().renderer().chat_toggle_circle();
+    if (chat_circle.radius > 0.0f) {
+        draw_chat_toggle_button(chat_circle, s.touch_opacity, 0);
+        if (st.selected_chat) {
+            list->AddCircle({chat_circle.centre.x, chat_circle.centre.y}, chat_circle.radius + 3.0f,
+                IM_COL32(236, 190, 96, 230), 0, 2.0f);
+        }
+    }
+
     // Choosing and dragging, where the panel is not.
     if (!io.WantCaptureMouse && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         st.choosing_buttons = false;
         st.selected.reset();
-        if (st.psp) {
+        st.selected_chat = false;
+        if (chat_circle.radius > 0.0f &&
+            std::hypot(io.MousePos.x - chat_circle.centre.x, io.MousePos.y - chat_circle.centre.y) <=
+                std::max(chat_circle.radius * 1.3f, 16.0f)) {
+            st.selected_chat = true;
+            st.dragging = true;
+            st.grab = {io.MousePos.x - chat_circle.centre.x, io.MousePos.y - chat_circle.centre.y};
+        } else if (st.psp) {
             float best = 0.0f;
             for (std::size_t i = 0; i < count; ++i) {
                 if (input::touch::is_combo(static_cast<input::touch::PspElement>(i)) && placement(i) == normal(i))
@@ -140,13 +158,21 @@ void touch_editor_frame(bool back) {
         } else if (const auto hit = element_at(s.touch_action, area, scale, io.MousePos)) {
             st.selected = static_cast<std::size_t>(*hit);
         }
-        st.dragging = st.selected.has_value();
+        st.dragging = st.selected.has_value() || st.selected_chat;
         if (st.selected) {
             const input::touch::Placed p = placed(*st.selected);
             st.grab = {io.MousePos.x - p.centre.x, io.MousePos.y - p.centre.y};
         }
     }
-    if (st.dragging && st.selected) {
+    if (st.dragging && st.selected_chat) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            s.touch_chat_x = std::clamp((io.MousePos.x - st.grab.x) / io.DisplaySize.x, 0.05f, 0.95f);
+            s.touch_chat_y = std::clamp((io.MousePos.y - st.grab.y) / io.DisplaySize.y, 0.05f, 0.95f);
+        } else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            st.dragging = false;
+            settings::save();
+        }
+    } else if (st.dragging && st.selected) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
             const input::touch::Point centre{io.MousePos.x - st.grab.x, io.MousePos.y - st.grab.y};
             auto &p = placement(*st.selected);
@@ -168,7 +194,12 @@ void touch_editor_frame(bool back) {
         at = {st.panel_place == 2 ? margin : io.DisplaySize.x - margin, io.DisplaySize.y * 0.5f};
         pivot = {st.panel_place == 2 ? 0.0f : 1.0f, 0.5f};
     }
-    if (st.selected) {
+    if (st.selected_chat && chat_circle.radius > 0.0f) {
+        const bool element_right = chat_circle.centre.x > io.DisplaySize.x * 0.5f;
+        width = std::min(io.DisplaySize.x * 0.46f, font * 22.0f);
+        at = {element_right ? margin : io.DisplaySize.x - margin, margin};
+        pivot = {element_right ? 0.0f : 1.0f, 0.0f};
+    } else if (st.selected) {
         const input::touch::Placed p = placed(*st.selected);
         const bool element_right = p.centre.x > io.DisplaySize.x * 0.5f;
         width = std::min(io.DisplaySize.x * 0.46f, font * 22.0f);
@@ -181,7 +212,27 @@ void touch_editor_frame(bool back) {
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_AlwaysAutoResize);
     bool done = back;
-    if (st.selected) {
+    if (st.selected_chat) {
+        heading(is_spanish() ? "Botón de Chat" : "Chat Button");
+        paragraph(is_spanish() ? "Arrastra para moverlo libremente por la pantalla."
+                               : "Drag to move it anywhere on the screen.", colors::kTextDim);
+        int chat_size_pct = static_cast<int>(std::lround(s.touch_chat_size * 100.0f));
+        if (slider_row(is_spanish() ? "Tamaño" : "Size", chat_size_pct, 50, 200, 5, "%d%%", {})) {
+            s.touch_chat_size = static_cast<float>(chat_size_pct) / 100.0f;
+            settings::save();
+        }
+        if (toggle_row(is_spanish() ? "Mostrar botón" : "Show Button", s.touch_chat_shown, {})) {
+            s.touch_chat_shown = !s.touch_chat_shown;
+            settings::save();
+        }
+        if (button_row(is_spanish() ? "Restablecer posición" : "Reset Position", {})) {
+            s.touch_chat_x = -1.0f;
+            s.touch_chat_y = -1.0f;
+            s.touch_chat_size = 1.0f;
+            s.touch_chat_shown = true;
+            settings::save();
+        }
+    } else if (st.selected) {
         const std::size_t i = *st.selected;
         const auto e = static_cast<Element>(i);
         const auto psp = static_cast<input::touch::PspElement>(i);
@@ -304,8 +355,13 @@ void touch_editor_frame(bool back) {
             if (st.psp) {
                 s.touch_psp = input::touch::default_psp_layout();
                 s.touch_dpad = true;
-            } else
+            } else {
                 s.touch_action = input::touch::default_action_layout();
+            }
+            s.touch_chat_x = -1.0f;
+            s.touch_chat_y = -1.0f;
+            s.touch_chat_size = 1.0f;
+            s.touch_chat_shown = true;
             settings::save();
         }
     }

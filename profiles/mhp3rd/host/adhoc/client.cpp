@@ -54,10 +54,13 @@ constexpr std::size_t kReadChunk = 16u * 1024u;
 using net::Address;
 using net::close_socket;
 using net::connect_pending;
+using net::is_loopback_ipv4;
 using net::kNoSocket;
 using net::kSendFlags;
+using net::no_sigpipe;
 using net::PollEntry;
 using net::poll_sockets;
+using net::primary_local_ipv4;
 using net::set_nonblocking;
 using net::Socket;
 using net::socket_error;
@@ -313,12 +316,115 @@ struct PendingConnection {
     Mac mac{};
     std::uint16_t port{};
     Clock::time_point arrived{};
+    Socket direct_socket{kNoSocket};
 };
+
+struct SeenPacket {
+    Mac source{};
+    std::uint16_t port{};
+    std::size_t size{};
+    std::uint32_t hash{};
+    Clock::time_point received{};
+};
+
+inline std::uint32_t hash_packet(const char *data, std::size_t size) {
+    std::uint32_t h = 2166136261u;
+    for (std::size_t i = 0; i < size; ++i) {
+        h ^= static_cast<std::uint8_t>(data[i]);
+        h *= 16777619u;
+    }
+    return h;
+}
+
+inline std::uint16_t port_offset() {
+    static const std::uint16_t offset = [] {
+        const char *env = std::getenv("MHP3RD_PORT_OFFSET");
+        if (env && *env) {
+            return static_cast<std::uint16_t>(std::atoi(env));
+        }
+        return static_cast<std::uint16_t>(10000);
+    }();
+    return offset;
+}
+
+inline std::uint16_t offset_port_simple(std::uint16_t port) {
+    if (port == 0) return 0;
+    const std::uint32_t shifted = static_cast<std::uint32_t>(port) + port_offset();
+    if (shifted == 0) return 65535;
+    return static_cast<std::uint16_t>(shifted > 65535 ? (shifted % 65536) : shifted);
+}
+
+inline std::uint16_t reverse_port_simple(std::uint16_t port) {
+    const std::uint16_t off = port_offset();
+    return port >= off ? static_cast<std::uint16_t>(port - off) : port;
+}
+
+Socket open_udp_socket(std::uint16_t port) {
+    Socket s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s == kNoSocket) return kNoSocket;
+    if (!set_nonblocking(s)) {
+        close_socket(s);
+        return kNoSocket;
+    }
+    int broadcast = 1;
+    setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&broadcast), sizeof(broadcast));
+    int reuse = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
+#if defined(SO_REUSEPORT)
+    setsockopt(s, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
+#endif
+    no_sigpipe(s);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_port = htons(offset_port_simple(port));
+    if (::bind(s, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+        address.sin_port = htons(port);
+        if (::bind(s, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+            close_socket(s);
+            return kNoSocket;
+        }
+    }
+    return s;
+}
+
+Socket open_tcp_listener(std::uint16_t port, std::size_t backlog) {
+    Socket s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == kNoSocket) return kNoSocket;
+    if (!set_nonblocking(s)) {
+        close_socket(s);
+        return kNoSocket;
+    }
+    tune_socket(s);
+    no_sigpipe(s);
+    int reuse = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
+#if defined(SO_REUSEPORT)
+    setsockopt(s, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
+#endif
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_port = htons(offset_port_simple(port));
+    if (::bind(s, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+        address.sin_port = htons(port);
+        if (::bind(s, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+            close_socket(s);
+            return kNoSocket;
+        }
+    }
+    if (::listen(s, static_cast<int>(std::max<std::size_t>(backlog, 1u))) != 0) {
+        close_socket(s);
+        return kNoSocket;
+    }
+    return s;
+}
 
 struct DatagramSocket {
     std::uint16_t port{};
     std::size_t capacity{};
     Link link;
+    Socket udp_socket{kNoSocket};
     Backoff backoff{milliseconds(250), milliseconds(4000)};
     Clock::time_point retry_at{};
     std::deque<Datagram> received;
@@ -327,6 +433,7 @@ struct DatagramSocket {
     // Header of the datagram being read, once complete.
     std::optional<Datagram> partial;
     std::size_t partial_size{};
+    std::deque<SeenPacket> seen_packets;
 };
 
 enum class StreamKind { Listen, Connect, Accept };
@@ -343,6 +450,10 @@ struct StreamSocket {
     std::string received;
     std::uint64_t sent_total{};
     std::uint64_t received_total{};
+    // Direct TCP
+    Socket direct_socket{kNoSocket};
+    Socket direct_listener{kNoSocket};
+    std::string direct_output;
     // Listen
     std::size_t backlog_limit{};
     std::deque<PendingConnection> backlog;
@@ -400,7 +511,11 @@ struct Client::Impl {
         std::uint32_t id{};
     };
     std::map<Mac, PeerEntry> peers;
+    std::map<Mac, std::uint32_t> peer_udp_addrs;
+    std::map<Mac, std::uint16_t> peer_udp_ports;
     std::vector<CtlEvent> events;
+    std::vector<ChatMessage> chat_log;
+    std::optional<ChatMessage> latest_chat_msg;
 
     // Diagnostics.
     std::string last_error;
@@ -465,6 +580,8 @@ struct Client::Impl {
         joined = false;
         current_group.reset();
         peers.clear();
+        peer_udp_addrs.clear();
+        peer_udp_ports.clear();
     }
 
     // Relay links only exist while the server has us in a group.
@@ -472,14 +589,30 @@ struct Client::Impl {
         for (auto &[handle, socket] : datagrams) {
             socket.link.close();
             socket.partial.reset();
+            socket.seen_packets.clear();
         }
         if (!streams_too) return;
         for (auto &[handle, socket] : streams) {
             if (socket.kind == StreamKind::Listen) {
                 socket.link.close();
+                if (socket.direct_listener != kNoSocket) {
+                    close_socket(socket.direct_listener);
+                    socket.direct_listener = kNoSocket;
+                }
+                for (auto &p : socket.backlog) {
+                    if (p.direct_socket != kNoSocket) {
+                        close_socket(p.direct_socket);
+                        p.direct_socket = kNoSocket;
+                    }
+                }
                 socket.backlog.clear();
                 continue;
             }
+            if (socket.direct_socket != kNoSocket) {
+                close_socket(socket.direct_socket);
+                socket.direct_socket = kNoSocket;
+            }
+            socket.direct_output.clear();
             if (socket.link.active()) socket.link.close();
             if (socket.state == StreamState::Established) {
                 socket.state = StreamState::Disconnected;
@@ -602,9 +735,20 @@ struct Client::Impl {
             }
             break;
         }
-        case ctl::kChat:
-            trace("ctl < chat (ignored)");
+        case ctl::kChat: {
+            const std::string msg = wire::get_fixed(packet + 1, ctl::kChatLength);
+            const std::string sender = wire::get_fixed(packet + 1 + ctl::kChatLength, ctl::kNicknameLength);
+            trace("ctl < chat from \"" + sender + "\": " + msg);
+            ChatMessage item;
+            item.sender = sender;
+            item.message = msg;
+            item.timestamp_ms = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<milliseconds>(Clock::now().time_since_epoch()).count());
+            chat_log.push_back(item);
+            if (chat_log.size() > 100u) chat_log.erase(chat_log.begin());
+            latest_chat_msg = item;
             break;
+        }
         default:
             break;
         }
@@ -712,8 +856,19 @@ struct Client::Impl {
             DatagramSocket &socket = it->second;
             if (socket.closing) {
                 socket.link.close();
+                if (socket.udp_socket != kNoSocket) {
+                    close_socket(socket.udp_socket);
+                    socket.udp_socket = kNoSocket;
+                }
                 it = datagrams.erase(it);
                 continue;
+            }
+            if (socket.udp_socket == kNoSocket) {
+                socket.udp_socket = open_udp_socket(socket.port);
+                if (socket.udp_socket != kNoSocket) {
+                    trace("pdp " + std::to_string(it->first) + " opened UDP socket on port " +
+                        std::to_string(socket.port));
+                }
             }
             if (socket.link.failed) {
                 socket.link.failed = false;
@@ -732,6 +887,92 @@ struct Client::Impl {
             if (socket.link.open && socket.link.input.empty() && now - socket.link.started > milliseconds(3000))
                 socket.backoff.reset();
             ++it;
+        }
+    }
+
+    void enqueue_datagram(int handle, DatagramSocket &socket, Datagram datagram, const char *origin) {
+        const auto now = Clock::now();
+        const std::uint32_t hash = hash_packet(datagram.data.data(), datagram.data.size());
+        while (!socket.seen_packets.empty() && now - socket.seen_packets.front().received > milliseconds(500)) {
+            socket.seen_packets.pop_front();
+        }
+        for (const auto &seen : socket.seen_packets) {
+            if (seen.source == datagram.source && seen.port == datagram.port && seen.size == datagram.data.size() &&
+                seen.hash == hash) {
+                trace(std::string(origin) + " < pdp " + std::to_string(handle) + " duplicate suppressed from " +
+                    format_mac(datagram.source) + " size " + std::to_string(datagram.data.size()));
+                return;
+            }
+        }
+        socket.seen_packets.push_back(SeenPacket{datagram.source, datagram.port, datagram.data.size(), hash, now});
+        trace(std::string(origin) + " < pdp " + std::to_string(handle) + " from " + format_mac(datagram.source) +
+            " port " + std::to_string(datagram.port) + " size " + std::to_string(datagram.data.size()));
+        ++traffic.packets_in;
+        traffic.bytes_in += datagram.data.size();
+        heard[datagram.source] = now;
+        if (socket.received_bytes + datagram.data.size() > socket.capacity) {
+            trace("pdp " + std::to_string(handle) + " buffer full; datagram dropped");
+            ++dropped;
+            return;
+        }
+        socket.received_bytes += datagram.data.size();
+        socket.received.push_back(std::move(datagram));
+    }
+
+    void service_udp(int handle, DatagramSocket &socket) {
+        char buffer[65536];
+        sockaddr_in sender{};
+        for (int round = 0; round < 16; ++round) {
+            socklen_t sender_len = sizeof(sender);
+            const auto count = ::recvfrom(
+                socket.udp_socket, buffer, static_cast<int>(sizeof(buffer)), 0,
+                reinterpret_cast<sockaddr *>(&sender), &sender_len);
+            if (count <= 0) {
+                if (count < 0 && would_block(socket_error())) break;
+                break;
+            }
+            const std::size_t size = static_cast<std::size_t>(count);
+            const std::uint32_t sender_ip = sender.sin_addr.s_addr;
+            const std::uint16_t sender_port = ntohs(sender.sin_port);
+            if ((sender_ip == primary_local_ipv4() || is_loopback_ipv4(sender_ip)) &&
+                (sender_port == offset_port_simple(socket.port) || sender_port == socket.port)) {
+                continue;
+            }
+            Mac source_mac{};
+            bool peer_found = false;
+            for (const auto &[mac, entry] : peers) {
+                if (entry.id == sender_ip || (is_loopback_ipv4(sender_ip) && is_loopback_ipv4(entry.id))) {
+                    source_mac = mac;
+                    peer_found = true;
+                    break;
+                }
+            }
+            if (!peer_found) {
+                for (const auto &[mac, ip] : peer_udp_addrs) {
+                    if (ip == sender_ip) {
+                        source_mac = mac;
+                        peer_found = true;
+                        break;
+                    }
+                }
+            }
+            if (!peer_found && peers.size() == 1u) {
+                source_mac = peers.begin()->first;
+                peer_found = true;
+            }
+            if (!peer_found) {
+                trace("pdp " + std::to_string(handle) + " dropped UDP packet from unmapped peer IP " +
+                    Address::ipv4_address(sender_ip, sender_port).host());
+                continue;
+            }
+            peer_udp_addrs[source_mac] = sender_ip;
+            peer_udp_ports[source_mac] = sender_port;
+
+            Datagram datagram;
+            datagram.source = source_mac;
+            datagram.port = socket.port;
+            datagram.data.assign(buffer, size);
+            enqueue_datagram(handle, socket, std::move(datagram), "udp");
         }
     }
 
@@ -760,18 +1001,7 @@ struct Client::Impl {
             socket.partial.reset();
             datagram.data.assign(in.data() + offset, socket.partial_size);
             offset += socket.partial_size;
-            trace("relay < pdp " + std::to_string(handle) + " from " + format_mac(datagram.source) + " port " +
-                std::to_string(datagram.port) + " size " + std::to_string(datagram.data.size()));
-            ++traffic.packets_in;
-            traffic.bytes_in += datagram.data.size();
-            heard[datagram.source] = Clock::now();
-            if (socket.received_bytes + datagram.data.size() > socket.capacity) {
-                trace("pdp " + std::to_string(handle) + " buffer full; datagram dropped");
-                ++dropped;
-                continue;
-            }
-            socket.received_bytes += datagram.data.size();
-            socket.received.push_back(std::move(datagram));
+            enqueue_datagram(handle, socket, std::move(datagram), "relay");
         }
         in.erase(0, offset);
     }
@@ -782,11 +1012,31 @@ struct Client::Impl {
             StreamSocket &socket = it->second;
             if (socket.closing) {
                 socket.link.close();
+                if (socket.direct_socket != kNoSocket) {
+                    close_socket(socket.direct_socket);
+                    socket.direct_socket = kNoSocket;
+                }
+                if (socket.direct_listener != kNoSocket) {
+                    close_socket(socket.direct_listener);
+                    socket.direct_listener = kNoSocket;
+                }
+                for (auto &p : socket.backlog) {
+                    if (p.direct_socket != kNoSocket) close_socket(p.direct_socket);
+                }
+                socket.backlog.clear();
+                socket.direct_output.clear();
                 it = streams.erase(it);
                 continue;
             }
             switch (socket.kind) {
             case StreamKind::Listen:
+                if (socket.direct_listener == kNoSocket) {
+                    socket.direct_listener = open_tcp_listener(socket.local_port, socket.backlog_limit);
+                    if (socket.direct_listener != kNoSocket) {
+                        trace("ptp " + std::to_string(handle) + " opened TCP listener on port " +
+                            std::to_string(offset_port_simple(socket.local_port)));
+                    }
+                }
                 if (socket.link.failed) {
                     socket.link.failed = false;
                     parse_stream(handle, socket);
@@ -801,16 +1051,54 @@ struct Client::Impl {
                         relay::init(relay::kInitPtpListen, identity.mac, socket.local_port, Mac{}, 0u),
                         "ptp listen port " + std::to_string(socket.local_port));
                 }
-                while (!socket.backlog.empty() && now - socket.backlog.front().arrived > kPendingConnectionLife)
+                while (!socket.backlog.empty() && now - socket.backlog.front().arrived > kPendingConnectionLife) {
+                    if (socket.backlog.front().direct_socket != kNoSocket) {
+                        close_socket(socket.backlog.front().direct_socket);
+                    }
                     socket.backlog.pop_front();
+                }
                 break;
             case StreamKind::Connect:
                 if (socket.state == StreamState::Opening) {
+                    if (socket.direct_socket == kNoSocket && now >= socket.retry_at) {
+                        std::uint32_t target_ip = 0;
+                        if (const auto fit = peer_udp_addrs.find(socket.peer); fit != peer_udp_addrs.end()) {
+                            target_ip = fit->second;
+                        } else if (const auto fit = peers.find(socket.peer); fit != peers.end()) {
+                            target_ip = fit->second.id;
+                        }
+                        if (target_ip != 0u) {
+                            Socket s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+                            if (s != kNoSocket && set_nonblocking(s)) {
+                                tune_socket(s);
+                                no_sigpipe(s);
+                                sockaddr_in dest{};
+                                dest.sin_family = AF_INET;
+                                dest.sin_addr.s_addr = target_ip;
+                                dest.sin_port = htons(offset_port_simple(socket.peer_port));
+                                const int res = ::connect(s, reinterpret_cast<const sockaddr *>(&dest), sizeof(dest));
+                                if (res == 0) {
+                                    socket.direct_socket = s;
+                                    socket.state = StreamState::Established;
+                                    report("direct stream to " + format_mac(socket.peer) + " established");
+                                    if (socket.link.active()) socket.link.close();
+                                } else if (connect_pending(socket_error())) {
+                                    socket.direct_socket = s;
+                                    trace("direct ptp " + std::to_string(handle) + " connecting to " +
+                                        Address::ipv4_address(target_ip, offset_port_simple(socket.peer_port)).host());
+                                } else {
+                                    close_socket(s);
+                                }
+                            } else if (s != kNoSocket) {
+                                close_socket(s);
+                            }
+                        }
+                    }
                     if (socket.link.failed) {
                         socket.link.failed = false;
                         parse_stream(handle, socket);
                         socket.link.close();
-                        if (socket.state == StreamState::Opening) {
+                        if (socket.state == StreamState::Opening && socket.direct_socket == kNoSocket) {
                             if (socket.retries_left == 0u) {
                                 trace("ptp " + std::to_string(handle) + " refused");
                                 socket.state = StreamState::Failed;
@@ -843,13 +1131,14 @@ struct Client::Impl {
                                 relay::kInitPtpAccept, identity.mac, socket.local_port, socket.peer, socket.peer_port),
                             "ptp accept " + std::to_string(socket.local_port) + " <- " + format_mac(socket.peer) +
                                 " port " + std::to_string(socket.peer_port));
-                    if (!socket.link.active()) socket.state = StreamState::Disconnected;
+                    if (!socket.link.active() && socket.direct_socket == kNoSocket)
+                        socket.state = StreamState::Disconnected;
                 }
                 if (socket.link.failed) {
                     socket.link.failed = false;
                     parse_stream(handle, socket);
                     socket.link.close();
-                    if (socket.state == StreamState::Established) {
+                    if (socket.state == StreamState::Established && socket.direct_socket == kNoSocket) {
                         report("stream to " + format_mac(socket.peer) + " closed");
                         socket.state = StreamState::Disconnected;
                     }
@@ -890,6 +1179,10 @@ struct Client::Impl {
             if (socket.state == StreamState::Opening) {
                 socket.state = StreamState::Established;
                 report("stream to " + format_mac(socket.peer) + " established");
+                if (socket.direct_socket != kNoSocket) {
+                    close_socket(socket.direct_socket);
+                    socket.direct_socket = kNoSocket;
+                }
             }
         }
         while (in.size() - offset >= relay::kPtpHeaderSize) {
@@ -984,7 +1277,7 @@ struct Client::Impl {
                                                              : "PTP accepted";
             summary.handle = handle;
             summary.port = socket.local_port;
-            summary.relay_linked = socket.link.open;
+            summary.relay_linked = socket.direct_socket != kNoSocket || socket.link.open;
             if (socket.kind != StreamKind::Listen) {
                 summary.peer = socket.peer;
                 summary.peer_port = socket.peer_port;
@@ -994,7 +1287,7 @@ struct Client::Impl {
                 summary.state = "closed";
                 break;
             case StreamState::Listening:
-                summary.state = std::string(socket.link.open ? "listening" : "linking") +
+                summary.state = std::string(socket.direct_listener != kNoSocket || socket.link.open ? "listening" : "linking") +
                     (socket.backlog.empty() ? "" : ", " + std::to_string(socket.backlog.size()) + " waiting");
                 break;
             case StreamState::Opening:
@@ -1014,7 +1307,7 @@ struct Client::Impl {
             if (socket.state == StreamState::Listening || socket.state == StreamState::Established ||
                 socket.state == StreamState::Opening) {
                 ++d.relay_links_wanted;
-                if (socket.link.open) ++d.relay_links_up;
+                if (socket.direct_socket != kNoSocket || socket.link.open) ++d.relay_links_up;
             }
         }
         d.total = traffic;
@@ -1030,6 +1323,7 @@ struct Client::Impl {
         }
         d.dropped = dropped;
         d.timeouts = timeouts;
+        d.chat_history = chat_log;
         snapshot_at = now;
         snapshot_traffic = traffic;
         std::lock_guard lock(snapshot_mutex);
@@ -1040,6 +1334,9 @@ struct Client::Impl {
     void run() {
         std::vector<PollEntry> entries;
         std::vector<Link *> links;
+        std::vector<int> udp_handles;
+        std::vector<int> direct_listen_handles;
+        std::vector<int> direct_stream_handles;
         while (!quit) {
             std::string to_resolve;
             std::uint64_t resolve_generation = 0;
@@ -1056,6 +1353,9 @@ struct Client::Impl {
                 maintain_streams(now);
                 entries.clear();
                 links.clear();
+                udp_handles.clear();
+                direct_listen_handles.clear();
+                direct_stream_handles.clear();
                 const auto add = [&](Link &link) {
                     if (!link.active()) return;
                     link.flush();
@@ -1070,6 +1370,39 @@ struct Client::Impl {
                 add(ctl);
                 for (auto &[handle, socket] : datagrams) add(socket.link);
                 for (auto &[handle, socket] : streams) add(socket.link);
+                for (auto &[handle, socket] : datagrams) {
+                    if (socket.udp_socket != kNoSocket && !socket.closing) {
+                        PollEntry entry{};
+                        entry.fd = socket.udp_socket;
+                        entry.events = POLLIN;
+                        entries.push_back(entry);
+                        udp_handles.push_back(handle);
+                    }
+                }
+                for (auto &[handle, socket] : streams) {
+                    if (socket.direct_listener != kNoSocket && !socket.closing) {
+                        PollEntry entry{};
+                        entry.fd = socket.direct_listener;
+                        entry.events = POLLIN;
+                        entries.push_back(entry);
+                        direct_listen_handles.push_back(handle);
+                    }
+                }
+                for (auto &[handle, socket] : streams) {
+                    if (socket.direct_socket != kNoSocket && !socket.closing) {
+                        PollEntry entry{};
+                        entry.fd = socket.direct_socket;
+                        if (socket.state == StreamState::Opening) {
+                            entry.events = POLLOUT;
+                        } else if (socket.state == StreamState::Established) {
+                            entry.events = static_cast<short>(
+                                (socket.received.size() < socket.capacity ? POLLIN : 0) |
+                                (!socket.direct_output.empty() ? POLLOUT : 0));
+                        }
+                        entries.push_back(entry);
+                        direct_stream_handles.push_back(handle);
+                    }
+                }
             }
             if (!to_resolve.empty()) {
                 std::string host;
@@ -1098,12 +1431,147 @@ struct Client::Impl {
             }
             const int ready = poll_sockets(entries.data(), entries.size(), kPollIntervalMs);
             std::lock_guard lock(mutex);
-            for (std::size_t i = 0; i < entries.size(); ++i) {
+            for (std::size_t i = 0; i < links.size(); ++i) {
                 // A socket the game closed meanwhile is gone from the maps only
                 // when this thread erases it, so the pointer is still valid.
                 Link &link = *links[i];
                 if (link.socket != entries[i].fd) continue;
                 link.service(ready > 0 ? entries[i].revents : static_cast<short>(0));
+            }
+            const std::size_t udp_start = links.size();
+            for (std::size_t j = 0; j < udp_handles.size(); ++j) {
+                const std::size_t entry_idx = udp_start + j;
+                if (ready > 0 && (entries[entry_idx].revents & POLLIN) != 0) {
+                    auto found = datagrams.find(udp_handles[j]);
+                    if (found != datagrams.end() && found->second.udp_socket == entries[entry_idx].fd) {
+                        service_udp(found->first, found->second);
+                    }
+                }
+            }
+            const std::size_t direct_listen_start = udp_start + udp_handles.size();
+            for (std::size_t k = 0; k < direct_listen_handles.size(); ++k) {
+                const std::size_t entry_idx = direct_listen_start + k;
+                if (ready > 0 && (entries[entry_idx].revents & POLLIN) != 0) {
+                    auto found = streams.find(direct_listen_handles[k]);
+                    if (found != streams.end() && found->second.direct_listener == entries[entry_idx].fd) {
+                        StreamSocket &listen_sock = found->second;
+                        sockaddr_in client_addr{};
+                        socklen_t client_len = sizeof(client_addr);
+                        Socket accepted = ::accept(listen_sock.direct_listener,
+                            reinterpret_cast<sockaddr *>(&client_addr), &client_len);
+                        if (accepted != kNoSocket) {
+                            set_nonblocking(accepted);
+                            tune_socket(accepted);
+                            no_sigpipe(accepted);
+                            const std::uint32_t peer_ip = client_addr.sin_addr.s_addr;
+                            const std::uint16_t peer_port = reverse_port_simple(ntohs(client_addr.sin_port));
+                            Mac peer_mac{};
+                            for (const auto &[mac, ip] : peer_udp_addrs) {
+                                if (ip == peer_ip) {
+                                    peer_mac = mac;
+                                    break;
+                                }
+                            }
+                            if (peer_mac == Mac{}) {
+                                for (const auto &[mac, entry] : peers) {
+                                    if (entry.id == peer_ip || (is_loopback_ipv4(peer_ip) && is_loopback_ipv4(entry.id))) {
+                                        peer_mac = mac;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (peer_mac == Mac{} && peers.size() == 1u) {
+                                peer_mac = peers.begin()->first;
+                            }
+                            trace("direct ptp " + std::to_string(found->first) + " accepted TCP connection from " +
+                                Address::ipv4_address(peer_ip, ntohs(client_addr.sin_port)).host() +
+                                " mac " + format_mac(peer_mac));
+                            PendingConnection pending;
+                            pending.mac = peer_mac;
+                            pending.port = peer_port;
+                            pending.arrived = Clock::now();
+                            pending.direct_socket = accepted;
+                            if (listen_sock.backlog.size() < std::max<std::size_t>(listen_sock.backlog_limit, 1u)) {
+                                listen_sock.backlog.push_back(pending);
+                            } else {
+                                close_socket(accepted);
+                            }
+                        }
+                    }
+                }
+            }
+            const std::size_t direct_stream_start = direct_listen_start + direct_listen_handles.size();
+            for (std::size_t m = 0; m < direct_stream_handles.size(); ++m) {
+                const std::size_t entry_idx = direct_stream_start + m;
+                const short revents = ready > 0 ? entries[entry_idx].revents : static_cast<short>(0);
+                auto found = streams.find(direct_stream_handles[m]);
+                if (found == streams.end()) continue;
+                StreamSocket &socket = found->second;
+                if (socket.direct_socket != entries[entry_idx].fd) continue;
+
+                if (socket.state == StreamState::Opening) {
+                    if ((revents & (POLLOUT | POLLERR | POLLHUP)) != 0) {
+                        int error = 0;
+                        socklen_t len = sizeof(error);
+                        getsockopt(socket.direct_socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &len);
+                        if (error == 0) {
+                            socket.state = StreamState::Established;
+                            report("direct stream to " + format_mac(socket.peer) + " established");
+                            if (socket.link.active()) socket.link.close();
+                        } else {
+                            trace("direct ptp " + std::to_string(found->first) + " connect failed error " + std::to_string(error));
+                            close_socket(socket.direct_socket);
+                            socket.direct_socket = kNoSocket;
+                            if (socket.retries_left == 0u && !socket.link.active()) {
+                                socket.state = StreamState::Failed;
+                            } else if (socket.retries_left > 0u) {
+                                --socket.retries_left;
+                                socket.retry_at = Clock::now() +
+                                    std::chrono::microseconds(std::max<std::uint64_t>(socket.retry_us, 100'000u));
+                            }
+                        }
+                    }
+                } else if (socket.state == StreamState::Established) {
+                    if ((revents & (POLLIN | POLLERR | POLLHUP)) != 0) {
+                        char buf[4096];
+                        for (int round = 0; round < 8; ++round) {
+                            if (socket.received.size() >= socket.capacity) break;
+                            const auto count = ::recv(socket.direct_socket, buf,
+                                static_cast<int>(std::min(sizeof(buf), socket.capacity - socket.received.size())), 0);
+                            if (count > 0) {
+                                socket.received.append(buf, static_cast<std::size_t>(count));
+                                socket.received_total += count;
+                                ++traffic.packets_in;
+                                traffic.bytes_in += count;
+                                heard[socket.peer] = Clock::now();
+                                if (static_cast<std::size_t>(count) < sizeof(buf)) break;
+                                continue;
+                            }
+                            if (count == 0 || !would_block(socket_error())) {
+                                report("direct stream to " + format_mac(socket.peer) + " closed by peer");
+                                close_socket(socket.direct_socket);
+                                socket.direct_socket = kNoSocket;
+                                socket.state = StreamState::Disconnected;
+                                break;
+                            }
+                            break;
+                        }
+                    }
+                    while (!socket.direct_output.empty() && socket.direct_socket != kNoSocket) {
+                        const auto count = ::send(socket.direct_socket, socket.direct_output.data(),
+                            static_cast<int>(socket.direct_output.size()), kSendFlags);
+                        if (count > 0) {
+                            socket.direct_output.erase(0, static_cast<std::size_t>(count));
+                            continue;
+                        }
+                        if (count < 0 && would_block(socket_error())) break;
+                        report("direct stream to " + format_mac(socket.peer) + " write error");
+                        close_socket(socket.direct_socket);
+                        socket.direct_socket = kNoSocket;
+                        socket.state = StreamState::Disconnected;
+                        break;
+                    }
+                }
             }
             if (!ctl.input.empty()) handle_ctl_input();
             for (auto &[handle, socket] : datagrams)
@@ -1114,8 +1582,31 @@ struct Client::Impl {
         }
         std::lock_guard lock(mutex);
         ctl.close();
-        for (auto &[handle, socket] : datagrams) socket.link.close();
-        for (auto &[handle, socket] : streams) socket.link.close();
+        for (auto &[handle, socket] : datagrams) {
+            socket.link.close();
+            if (socket.udp_socket != kNoSocket) {
+                close_socket(socket.udp_socket);
+                socket.udp_socket = kNoSocket;
+            }
+        }
+        for (auto &[handle, socket] : streams) {
+            socket.link.close();
+            if (socket.direct_socket != kNoSocket) {
+                close_socket(socket.direct_socket);
+                socket.direct_socket = kNoSocket;
+            }
+            if (socket.direct_listener != kNoSocket) {
+                close_socket(socket.direct_listener);
+                socket.direct_listener = kNoSocket;
+            }
+            for (auto &p : socket.backlog) {
+                if (p.direct_socket != kNoSocket) {
+                    close_socket(p.direct_socket);
+                    p.direct_socket = kNoSocket;
+                }
+            }
+            socket.backlog.clear();
+        }
     }
 };
 
@@ -1379,6 +1870,36 @@ std::vector<CtlEvent> Client::take_events() {
     return events;
 }
 
+void Client::send_chat(std::string_view message) {
+    if (message.empty()) return;
+    std::lock_guard lock(impl_->mutex);
+    Impl &s = *impl_;
+    if (!s.ctl.active() || !s.logged_in) return;
+    std::string text(message.substr(0, ctl::kChatLength - 1u));
+    s.ctl.output += ctl::chat(text);
+    trace("ctl > chat: " + text);
+
+    ChatMessage item;
+    item.sender = s.identity.nickname.empty() ? "Me" : s.identity.nickname;
+    item.message = text;
+    item.timestamp_ms = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<milliseconds>(Clock::now().time_since_epoch()).count());
+    s.chat_log.push_back(item);
+    if (s.chat_log.size() > 100u) s.chat_log.erase(s.chat_log.begin());
+}
+
+std::vector<ChatMessage> Client::chat_history() const {
+    std::lock_guard lock(impl_->mutex);
+    return impl_->chat_log;
+}
+
+std::optional<ChatMessage> Client::take_latest_chat() {
+    std::lock_guard lock(impl_->mutex);
+    auto msg = impl_->latest_chat_msg;
+    impl_->latest_chat_msg.reset();
+    return msg;
+}
+
 int Client::pdp_open(std::uint16_t port, std::size_t capacity) {
     std::lock_guard lock(impl_->mutex);
     Impl &s = *impl_;
@@ -1388,6 +1909,11 @@ int Client::pdp_open(std::uint16_t port, std::size_t capacity) {
     DatagramSocket &socket = s.datagrams[handle];
     socket.port = port;
     socket.capacity = std::max<std::size_t>(capacity, 1u);
+    socket.udp_socket = open_udp_socket(port);
+    if (socket.udp_socket != kNoSocket) {
+        trace("pdp " + std::to_string(handle) + " opened UDP socket on port " +
+            std::to_string(offset_port_simple(port)));
+    }
     trace("pdp " + std::to_string(handle) + " open port " + std::to_string(port));
     return handle;
 }
@@ -1406,7 +1932,9 @@ bool Client::pdp_send(int handle, const Mac &destination, std::uint16_t port, co
     auto found = s.datagrams.find(handle);
     if (found == s.datagrams.end() || found->second.closing) return false;
     DatagramSocket &socket = found->second;
-    if (!socket.link.active() || !s.joined) {
+    const bool can_relay = socket.link.active() && s.joined;
+    const bool can_udp = socket.udp_socket != kNoSocket && s.joined;
+    if (!can_relay && !can_udp) {
         trace("pdp " + std::to_string(handle) + " not linked; datagram to " + format_mac(destination) + " dropped");
         ++s.dropped;
         return true;
@@ -1415,23 +1943,69 @@ bool Client::pdp_send(int handle, const Mac &destination, std::uint16_t port, co
         ++s.dropped;
         return true;
     }
-    const auto queue = [&](const Mac &target) {
+    bool sent_traffic = false;
+    const auto queue_relay = [&](const Mac &target) {
+        if (!can_relay) return;
         if (socket.link.output.size() > kMaxQueuedOutput) {
             trace("pdp " + std::to_string(handle) + " send queue full; datagram dropped");
             ++s.dropped;
             return;
         }
-        ++s.traffic.packets_out;
-        s.traffic.bytes_out += size;
+        if (!sent_traffic) {
+            ++s.traffic.packets_out;
+            s.traffic.bytes_out += size;
+            sent_traffic = true;
+        }
         socket.link.output += relay::pdp_header(target, port, static_cast<std::uint32_t>(size));
         socket.link.output.append(static_cast<const char *>(data), size);
         trace("relay > pdp " + std::to_string(handle) + " to " + format_mac(target) + " port " + std::to_string(port) +
             " size " + std::to_string(size));
     };
+
+    const auto send_udp_target = [&](const Mac &target_mac) {
+        if (!can_udp) return;
+        std::uint32_t target_ip = 0;
+        std::uint16_t target_port = offset_port_simple(port);
+        if (const auto it = s.peer_udp_addrs.find(target_mac); it != s.peer_udp_addrs.end()) {
+            target_ip = it->second;
+        } else if (const auto it = s.peers.find(target_mac); it != s.peers.end()) {
+            target_ip = it->second.id;
+        }
+        if (const auto it = s.peer_udp_ports.find(target_mac); it != s.peer_udp_ports.end()) {
+            target_port = it->second;
+        }
+        if (target_ip != 0u) {
+            sockaddr_in dest{};
+            dest.sin_family = AF_INET;
+            dest.sin_addr.s_addr = target_ip;
+            dest.sin_port = htons(target_port);
+            ::sendto(socket.udp_socket, static_cast<const char *>(data), static_cast<int>(size), kSendFlags,
+                reinterpret_cast<const sockaddr *>(&dest), sizeof(dest));
+            if (!sent_traffic) {
+                ++s.traffic.packets_out;
+                s.traffic.bytes_out += size;
+                sent_traffic = true;
+            }
+            trace("udp > pdp " + std::to_string(handle) + " to " + format_mac(target_mac) + " " +
+                Address::ipv4_address(target_ip, target_port).host() + ":" + std::to_string(target_port) + " size " +
+                std::to_string(size));
+        }
+    };
+
     if (destination == kBroadcastMac) {
-        for (const auto &[mac, entry] : s.peers) queue(mac);
+        for (const auto &[mac, entry] : s.peers) queue_relay(mac);
+        if (can_udp) {
+            sockaddr_in bcast{};
+            bcast.sin_family = AF_INET;
+            bcast.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+            bcast.sin_port = htons(offset_port_simple(port));
+            ::sendto(socket.udp_socket, static_cast<const char *>(data), static_cast<int>(size), kSendFlags,
+                reinterpret_cast<const sockaddr *>(&bcast), sizeof(bcast));
+            for (const auto &[mac, entry] : s.peers) send_udp_target(mac);
+        }
     } else {
-        queue(destination);
+        queue_relay(destination);
+        send_udp_target(destination);
     }
     return true;
 }
@@ -1472,6 +2046,11 @@ int Client::ptp_listen(std::uint16_t port, std::size_t capacity, std::size_t bac
     socket.local_port = port;
     socket.capacity = std::max<std::size_t>(capacity, 1u);
     socket.backlog_limit = backlog;
+    socket.direct_listener = open_tcp_listener(port, backlog);
+    if (socket.direct_listener != kNoSocket) {
+        trace("ptp " + std::to_string(handle) + " opened TCP listener on port " +
+            std::to_string(offset_port_simple(port)));
+    }
     trace("ptp " + std::to_string(handle) + " listen port " + std::to_string(port));
     return handle;
 }
@@ -1492,6 +2071,7 @@ int Client::ptp_open(std::uint16_t local_port, const Mac &peer, std::uint16_t pe
     socket.capacity = std::max<std::size_t>(capacity, 1u);
     socket.retry_us = retry_us;
     socket.retries_left = retries;
+    socket.retry_at = Clock::now();
     trace("ptp " + std::to_string(handle) + " open " + std::to_string(local_port) + " -> " + format_mac(peer) +
         " port " + std::to_string(peer_port));
     return handle;
@@ -1501,26 +2081,30 @@ int Client::ptp_accept(int listener) {
     std::lock_guard lock(impl_->mutex);
     Impl &s = *impl_;
     auto found = s.streams.find(listener);
-    if (found == s.streams.end() || found->second.kind != StreamKind::Listen || !s.server) return 0;
+    if (found == s.streams.end() || found->second.kind != StreamKind::Listen) return 0;
     StreamSocket &listen = found->second;
     const auto now = Clock::now();
-    while (!listen.backlog.empty() && now - listen.backlog.front().arrived > kPendingConnectionLife)
+    while (!listen.backlog.empty() && now - listen.backlog.front().arrived > kPendingConnectionLife) {
+        if (listen.backlog.front().direct_socket != kNoSocket) {
+            close_socket(listen.backlog.front().direct_socket);
+        }
         listen.backlog.pop_front();
+    }
     if (listen.backlog.empty()) return 0;
     const PendingConnection pending = listen.backlog.front();
     listen.backlog.pop_front();
     const int handle = s.next_handle++;
     StreamSocket &socket = s.streams[handle];
     socket.kind = StreamKind::Accept;
-    // The relay may still refuse, but to the game an accepted stream is open;
-    // a refusal looks like the peer closing it at once.
     socket.state = StreamState::Established;
     socket.local_port = listen.local_port;
     socket.peer = pending.mac;
     socket.peer_port = pending.port;
     socket.capacity = listen.capacity;
-    // The network thread opens its relay connection.
-    socket.accept_pending = true;
+    socket.direct_socket = pending.direct_socket;
+    if (socket.direct_socket == kNoSocket) {
+        socket.accept_pending = true;
+    }
     report("accepted a stream from " + format_mac(pending.mac));
     return handle;
 }
@@ -1536,13 +2120,15 @@ StreamInfo Client::ptp_info(int handle) const {
     info.peer = socket.peer;
     info.peer_port = socket.peer_port;
     info.readable = socket.kind == StreamKind::Listen ? socket.backlog.size() : socket.received.size();
-    info.unsent = socket.link.output.size();
-    // The game's data among the queued bytes. The game's stream messages are
-    // small, so the queue holds at most a block or two, each with a 4-byte
-    // size in front; before the relay link is up it holds the init record.
-    info.unsent_data = socket.link.open && socket.link.output.size() > relay::kPtpHeaderSize
-        ? socket.link.output.size() - relay::kPtpHeaderSize
-        : 0u;
+    if (socket.direct_socket != kNoSocket) {
+        info.unsent = socket.direct_output.size();
+        info.unsent_data = socket.direct_output.size();
+    } else {
+        info.unsent = socket.link.output.size();
+        info.unsent_data = socket.link.open && socket.link.output.size() > relay::kPtpHeaderSize
+            ? socket.link.output.size() - relay::kPtpHeaderSize
+            : 0u;
+    }
     info.capacity = socket.capacity;
     info.sent = socket.sent_total;
     info.received = socket.received_total;
@@ -1560,7 +2146,28 @@ std::size_t Client::ptp_send(int handle, const void *data, std::size_t size) {
     auto found = impl_->streams.find(handle);
     if (found == impl_->streams.end()) return 0u;
     StreamSocket &socket = found->second;
-    if (socket.state != StreamState::Established || !socket.link.active()) return 0u;
+    if (socket.state != StreamState::Established) return 0u;
+
+    if (socket.direct_socket != kNoSocket) {
+        const std::size_t queued = socket.direct_output.size();
+        const std::size_t room = queued >= socket.capacity ? 0u : socket.capacity - queued;
+        const std::size_t count = std::min(size, room);
+        if (count > 0) {
+            socket.direct_output.append(static_cast<const char *>(data), count);
+            socket.sent_total += count;
+            ++impl_->traffic.packets_out;
+            impl_->traffic.bytes_out += count;
+            const auto sent = ::send(socket.direct_socket, socket.direct_output.data(),
+                static_cast<int>(socket.direct_output.size()), kSendFlags);
+            if (sent > 0) {
+                socket.direct_output.erase(0, static_cast<std::size_t>(sent));
+            }
+            trace("direct > ptp " + std::to_string(handle) + " data " + std::to_string(count));
+        }
+        return count;
+    }
+
+    if (!socket.link.active()) return 0u;
     const std::size_t queued = socket.link.output.size();
     const std::size_t room = queued >= socket.capacity ? 0u : socket.capacity - queued;
     const std::size_t count = std::min(size, room);

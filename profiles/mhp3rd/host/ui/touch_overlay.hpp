@@ -20,6 +20,8 @@ void draw_action_controls(const input::touch::ActionControls &controls, float op
 
 // A small toggle button to hide or show on-screen touch controls.
 void draw_hud_toggle_button(const input::touch::Circle &circle, float opacity, bool hidden);
+void draw_edit_touch_button(const input::touch::Circle &circle, float opacity);
+void draw_chat_toggle_button(const input::touch::Circle &circle, float opacity, int unread_count);
 
 // One element of the action layout, for the game and for the editor: its
 // own icon, drawn in code, and the PSP buttons it presses beside it.

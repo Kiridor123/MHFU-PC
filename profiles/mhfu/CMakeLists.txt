@@ -449,3 +449,16 @@ set_source_files_properties(
 
 message(STATUS "mhfu: ${MHFU_TOTAL_OVERLAY_LIBS} overlay librar(ies) in ${MHFU_OVERLAY_DIR}")
 
+add_executable(mhfu_adhoc_tests
+    "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/tests/adhoc_tests.cpp"
+    "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/adhoc/client.cpp"
+    "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/adhoc/discovery.cpp"
+    "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host/adhoc/server.cpp")
+target_include_directories(mhfu_adhoc_tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/profiles/mhp3rd/host")
+target_link_libraries(mhfu_adhoc_tests PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(mhfu_adhoc_tests PRIVATE ws2_32 iphlpapi)
+endif()
+set_target_properties(mhfu_adhoc_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+add_test(NAME mhfu_adhoc_tests COMMAND mhfu_adhoc_tests)

@@ -15,6 +15,7 @@ cmake-build-*/
 *.zip
 *.apk
 *.idsig
+*.mp4
 /Pokke-Windows-x64/
 *.lib
 *.obj

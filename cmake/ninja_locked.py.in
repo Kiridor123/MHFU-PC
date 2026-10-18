@@ -21,12 +21,15 @@ to take the lock their own parent already holds.
 
 import fcntl
 import os
+import shutil
 import struct
 import subprocess
 import sys
 import time
 
 REAL_NINJA = "@PSPRECOMP_REAL_NINJA@"
+if not os.path.exists(REAL_NINJA):
+    REAL_NINJA = shutil.which("ninja") or REAL_NINJA
 LOCK_NAME = ".build_lock"  # not .ninja_lock: Ninja uses that name for its own purposes
 HELD_ENV = "PSPRECOMP_BUILD_LOCKS"
 

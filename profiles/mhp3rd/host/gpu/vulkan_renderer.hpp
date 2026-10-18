@@ -125,6 +125,8 @@ public:
     [[nodiscard]] bool touch_hud_hidden() const noexcept;
     void set_touch_hud_hidden(bool hidden) noexcept;
     [[nodiscard]] input::touch::Circle hud_toggle_circle() const noexcept;
+    [[nodiscard]] input::touch::Circle edit_touch_circle() const noexcept;
+    [[nodiscard]] input::touch::Circle chat_toggle_circle() const noexcept;
     [[nodiscard]] const input::touch::Controls &touch_controls() const;
     // The action layout's controls (#174), which take the fingers instead
     // while settings choose that layout.
@@ -134,6 +136,9 @@ public:
     [[nodiscard]] MouseMotion take_touch_motion() noexcept;
     // The on-screen menu button was tapped since the last take.
     [[nodiscard]] bool take_touch_menu() noexcept;
+    [[nodiscard]] bool take_touch_edit() noexcept;
+    [[nodiscard]] bool take_touch_chat() noexcept;
+    [[nodiscard]] bool take_chat_toggle() noexcept;
     // The pointer is captured for the game: hidden, and its motion and
     // buttons go to the game. That is while the mouse setting is on, the game
     // has input, no interface screen is up and the window has focus.

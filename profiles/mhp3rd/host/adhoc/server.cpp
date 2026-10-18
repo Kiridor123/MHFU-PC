@@ -214,15 +214,19 @@ struct Server::Impl {
 
     std::uint32_t make_player_id(const Address &address) {
         // The PRO protocol names players by IPv4 address; clients that relay
-        // everything only need the numbers to be unique. So the address when
-        // it is unique and useful, otherwise a small number.
-        const std::uint32_t v4 = address.ipv4();
+        // everything only need the numbers to be unique. For direct UDP peers
+        // (such as PPSSPP), the IPv4 address must be reachable.
+        std::uint32_t v4 = address.ipv4();
+        if (v4 == 0u || net::is_loopback_ipv4(v4)) {
+            const std::uint32_t local = net::primary_local_ipv4();
+            if (local != 0u && !net::is_loopback_ipv4(local)) v4 = local;
+        }
         const auto taken = [&](std::uint32_t id) {
             for (const auto &[key, player] : players)
                 if (player.logged_in && player.id == id) return true;
             return false;
         };
-        if (v4 != 0u && !is_loopback_ipv4(v4) && !taken(v4)) return v4;
+        if (v4 != 0u && !net::is_loopback_ipv4(v4) && !taken(v4)) return v4;
         for (;;) {
             const std::uint32_t id = next_player_id++;
             if (next_player_id >= 0x00FFFFFFu) next_player_id = 1u;

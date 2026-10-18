@@ -72,6 +72,8 @@ fi
 
 step "Configuring Pokke (MHFU Release)"
 cmake -S "$repo_dir" -B "$build" -G Ninja \
+    -DCMAKE_C_COMPILER="${CC:-gcc}" \
+    -DCMAKE_CXX_COMPILER="${CXX:-g++}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DPSPRECOMP_PROFILE=mhfu \
     -DMHFU_RELEASE=ON \

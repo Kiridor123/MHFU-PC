@@ -61,6 +61,7 @@ bool run_menu();
 // Opens the menu over the running game instead: draw_over_game() then draws
 // it with every game frame, and the game gets no input until it closes.
 void open_menu_over_game();
+void open_touch_editor_over_game();
 [[nodiscard]] bool menu_over_game();
 // Once, after the player chose to quit in a menu over the running game.
 [[nodiscard]] bool take_quit_request();

@@ -10,9 +10,9 @@ namespace {
 // Key positions by USB HID usage, the values SDL's scancodes have.
 namespace hid {
 constexpr std::uint16_t A = 4, C = 6, D = 7, E = 8, F = 9, H = 11, I = 12, J = 13, K = 14, L = 15, O = 18;
-constexpr std::uint16_t Q = 20, S = 22, T = 23, U = 24, W = 26, X = 27, Z = 29;
+constexpr std::uint16_t Q = 20, S = 22, T = 23, U = 24, W = 26, X = 27, Y = 28, Z = 29;
 constexpr std::uint16_t Return = 40, Backspace = 42, Tab = 43, Space = 44, Grave = 53, Period = 55;
-constexpr std::uint16_t F7 = 64, F12 = 69, PrintScreen = 70;
+constexpr std::uint16_t F7 = 64, F8 = 65, F12 = 69, PrintScreen = 70;
 constexpr std::uint16_t Right = 79, Left = 80, Down = 81, Up = 82;
 constexpr std::uint16_t Keypad4 = 92, Keypad5 = 93, Keypad6 = 94, Keypad8 = 96;
 constexpr std::uint16_t LeftShift = 225, RightShift = 229;
@@ -39,6 +39,8 @@ public:
         set(Action::FrameStep, key(hid::Period));
         // Beside F6, the free camera's key: nothing else uses it.
         set(Action::HideHud, key(hid::F7));
+        // Online chat: F8 or Y by default, configurable by player.
+        set(Action::Chat, key(hid::F8), key(hid::Y));
         // T for target, which no preset gives the game.
         return set(Action::LockOn, key(hid::T));
     }
@@ -56,6 +58,7 @@ public:
     // Back + R3 for the free camera, which all hold it, never lock on.
     Builder &host_pad(bool mirrored = false) {
         set(Action::LockOn, pad(mirrored ? PadInput::LeftStick : PadInput::RightStick));
+        set(Action::Chat, pad(PadInput::LeftTrigger));
         if (mirrored)
             set(Action::Screenshot, chord(pad(PadInput::LeftStick), pad(PadInput::West)));
         else

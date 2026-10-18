@@ -189,4 +189,24 @@ inline bool is_loopback_ipv4(std::uint32_t network_order) {
     return (ntohl(network_order) >> 24u) == 127u;
 }
 
+// Queries the operating system for the machine's primary local IPv4 address in network byte order.
+inline std::uint32_t primary_local_ipv4() {
+    Socket s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s == kNoSocket) return 0u;
+    sockaddr_in probe{};
+    probe.sin_family = AF_INET;
+    probe.sin_port = htons(53);
+    probe.sin_addr.s_addr = htonl(0x08080808u); // 8.8.8.8
+    std::uint32_t local_ip = 0u;
+    if (::connect(s, reinterpret_cast<const sockaddr *>(&probe), sizeof(probe)) == 0) {
+        sockaddr_in local{};
+        socklen_t len = sizeof(local);
+        if (::getsockname(s, reinterpret_cast<sockaddr *>(&local), &len) == 0) {
+            local_ip = local.sin_addr.s_addr;
+        }
+    }
+    close_socket(s);
+    return local_ip;
+}
+
 } // namespace mhp3rd::adhoc::net

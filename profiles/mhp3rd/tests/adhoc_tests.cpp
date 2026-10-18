@@ -183,6 +183,68 @@ void server_and_client() {
         "B's datagram reaches A");
     b_pdp.send(relay::pdp_header(Mac{0x02, 9, 9, 9, 9, 9}, 10000, 3) + "xyz");
 
+    // Direct UDP datagrams (PPSSPP compatibility with portOffset=10000).
+    Socket b_udp = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    set_nonblocking(b_udp);
+    sockaddr_in b_addr{};
+    b_addr.sin_family = AF_INET;
+    b_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    b_addr.sin_port = htons(20002);
+    ::bind(b_udp, reinterpret_cast<const sockaddr *>(&b_addr), sizeof(b_addr));
+
+    // B sends a UDP datagram to A's PDP port 10000 (shifted by portOffset=10000 -> 20000).
+    const std::string udp_msg = "udp hello from PPSSPP peer B";
+    sockaddr_in a_udp_addr{};
+    a_udp_addr.sin_family = AF_INET;
+    a_udp_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a_udp_addr.sin_port = htons(20000);
+    ::sendto(b_udp, udp_msg.data(), static_cast<int>(udp_msg.size()), 0,
+        reinterpret_cast<const sockaddr *>(&a_udp_addr), sizeof(a_udp_addr));
+
+    std::optional<Datagram> udp_got;
+    check(wait_until([&] { return (udp_got = a.pdp_receive(pdp)).has_value(); }) && udp_got->source == kMacB &&
+            udp_got->port == 10000 && udp_got->data == udp_msg,
+        "A receives a direct UDP datagram from peer B");
+
+    // A sends a datagram back to B (which sends via UDP to B's learned port 20002).
+    const std::string a_to_b_udp = "reply from A to B via UDP";
+    a.pdp_send(pdp, kMacB, 10000, a_to_b_udp.data(), a_to_b_udp.size());
+    char udp_buf[512] = {};
+    const auto recv_b = wait_until([&] {
+        const auto count = ::recv(b_udp, udp_buf, sizeof(udp_buf), 0);
+        return count > 0 && std::string(udp_buf, count) == a_to_b_udp;
+    });
+    check(recv_b, "B receives A's datagram directly over UDP");
+
+    // Deduplication test: send same packet over both relay and UDP rapidly.
+    const std::string dup_msg = "test duplicate suppression";
+    b_pdp.send(relay::pdp_header(kMacA, 10000, static_cast<std::uint32_t>(dup_msg.size())) + dup_msg);
+    ::sendto(b_udp, dup_msg.data(), static_cast<int>(dup_msg.size()), 0,
+        reinterpret_cast<const sockaddr *>(&a_udp_addr), sizeof(a_udp_addr));
+    std::optional<Datagram> dup_first;
+    check(wait_until([&] { return (dup_first = a.pdp_receive(pdp)).has_value(); }) && dup_first->data == dup_msg,
+        "first instance of duplicated packet is received");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::optional<Datagram> dup_second = a.pdp_receive(pdp);
+    check(!dup_second.has_value(), "duplicate packet within suppression window was dropped");
+    close_socket(b_udp);
+
+    // In-game adhocctl chat (PPSSPP cross-play compatibility).
+    const std::string ppsspp_chat = "Good hunting!";
+    b.send(ctl::chat(ppsspp_chat));
+    std::optional<ChatMessage> chat_from_b;
+    check(wait_until([&] { return (chat_from_b = a.take_latest_chat()).has_value(); }) &&
+            chat_from_b->sender == "HunterB" && chat_from_b->message == ppsspp_chat,
+        "A receives B's chat message with nickname");
+
+    const std::string pokke_chat = "Thanks, let's go!";
+    a.send_chat(pokke_chat);
+    const auto chat_packet = b.read(ctl::server_packet_size(ctl::kChat));
+    check(chat_packet && static_cast<std::uint8_t>((*chat_packet)[0]) == ctl::kChat &&
+            wire::get_fixed(chat_packet->data() + 1, ctl::kChatLength) == pokke_chat &&
+            wire::get_fixed(chat_packet->data() + 1 + ctl::kChatLength, ctl::kNicknameLength) == "HunterA",
+        "B receives A's chat message over adhocctl");
+
     // A stream from B to A's listening socket.
     const int listener = a.ptp_listen(20001, 8192, 1);
     check(wait_until([&] {
@@ -214,6 +276,39 @@ void server_and_client() {
     b_stream.close();
     check(wait_until([&] { return a.ptp_info(accepted).state == StreamState::Disconnected; }),
         "B closing the stream reaches A as a disconnect");
+    a.ptp_close(accepted);
+
+    // Direct TCP stream from B to A (PPSSPP compatibility on port 20001 + 10000 = 30001).
+    Socket direct_b = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    set_nonblocking(direct_b);
+    sockaddr_in direct_dest{};
+    direct_dest.sin_family = AF_INET;
+    direct_dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    direct_dest.sin_port = htons(30001);
+    ::connect(direct_b, reinterpret_cast<const sockaddr *>(&direct_dest), sizeof(direct_dest));
+    int direct_accepted = 0;
+    check(wait_until([&] { return (direct_accepted = a.ptp_accept(listener)) != 0; }),
+        "A accepts direct TCP connection from B");
+    const std::string direct_ping = "direct quest sync";
+    check(a.ptp_send(direct_accepted, direct_ping.data(), direct_ping.size()) == direct_ping.size(),
+        "A sends data over direct TCP");
+    char direct_buf[64] = {};
+    const auto recv_direct = wait_until([&] {
+        const auto count = ::recv(direct_b, direct_buf, sizeof(direct_buf), 0);
+        return count > 0 && std::string(direct_buf, count) == direct_ping;
+    });
+    check(recv_direct, "B receives A's direct TCP stream data");
+    const std::string direct_pong = "direct sync ok";
+    ::send(direct_b, direct_pong.data(), static_cast<int>(direct_pong.size()), 0);
+    char direct_rx[64] = {};
+    std::size_t direct_rcvd = 0;
+    check(wait_until([&] { return (direct_rcvd = a.ptp_receive(direct_accepted, direct_rx, sizeof(direct_rx))) != 0u; }) &&
+            std::string(direct_rx, direct_rcvd) == direct_pong,
+        "A receives B's direct TCP stream data");
+    close_socket(direct_b);
+    check(wait_until([&] { return a.ptp_info(direct_accepted).state == StreamState::Disconnected; }),
+        "B closing direct TCP stream reaches A as disconnect");
+    a.ptp_close(direct_accepted);
 
     // A stream from A to B's listening socket.
     Raw b_listen(relay_port);

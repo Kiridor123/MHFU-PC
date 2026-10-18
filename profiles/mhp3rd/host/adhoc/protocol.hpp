@@ -114,6 +114,12 @@ inline std::string connect(std::string_view group) {
 inline std::string opcode_only(Opcode opcode) {
     return std::string(1u, static_cast<char>(opcode));
 }
+inline std::string chat(std::string_view message) {
+    std::string out;
+    wire::put8(out, kChat);
+    wire::put_fixed(out, message.substr(0, kChatLength - 1u), kChatLength);
+    return out;
+}
 
 // Client to server: sizes including the opcode, 0 for an opcode a client
 // never sends.

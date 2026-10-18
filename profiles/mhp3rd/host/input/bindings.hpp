@@ -64,6 +64,8 @@ enum class Action : std::uint8_t {
     // Not a PSP control: locks the camera onto a large monster and lets it
     // go again (camera/lock_on.hpp).
     LockOn,
+    // Not a PSP control: opens the online in-game chat
+    Chat,
     Count
 };
 inline constexpr std::size_t kActions = static_cast<std::size_t>(Action::Count);
@@ -335,6 +337,7 @@ struct PadState {
     bool frame_step{};   // the frame step bind is held
     bool hide_hud{};     // the hide-HUD bind is held
     bool lock_on{};      // the lock-on bind is held
+    bool chat{};         // the chat toggle bind is held
 };
 // At once, with no memory of what came before (Resolver has it): among the
 // held inputs, the longest bound chord wins and its inputs do nothing else;

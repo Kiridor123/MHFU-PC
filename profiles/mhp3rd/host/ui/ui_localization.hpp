@@ -109,6 +109,13 @@ inline const char *tr(const char *text) {
         {"Nickname", "Apodo en red"},
         {"Server", "Servidor"},
         {"Host on This Device", "Alojar partida en este equipo"},
+        {"Online Chat", "Chat Online"},
+        {"Chat Button", "Botón de Chat"},
+        {"Show Button", "Mostrar botón"},
+        {"Reset Position", "Restablecer posición"},
+        {"Open Chat Window…", "Abrir ventana de chat…"},
+        {"Chat (PPSSPP):", "Chat en línea (PPSSPP):"},
+        {"Chat Message", "Mensaje de Chat"},
 
         // QoL tab options
         {"Free Camera", "Cámara libre"},
