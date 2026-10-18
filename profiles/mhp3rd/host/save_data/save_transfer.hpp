@@ -20,10 +20,14 @@
 
 namespace mhp3rd::savedata {
 
-// The folders this game keeps on a memory stick: the game data, the
-// downloaded quests, and the install data (a cache the game can rebuild).
+// The folders supported by save transfer: game data, downloaded quests, and install data.
 inline constexpr std::string_view kGameName = "ULJM05800";
-inline constexpr std::string_view kSaveFolderNames[] = {"ULJM05800", "ULJM05800QST", "ULJM05800DAT"};
+inline constexpr std::string_view kSaveFolderNames[] = {
+    "ULJM05800", "ULJM05800QST", "ULJM05800DAT",
+    "ULUS10391", "ULUS10391QST", "ULUS10391DAT",
+    "ULES01213", "ULES01213QST", "ULES01213DAT",
+    "ULJM05500", "ULJM05500QST", "ULJM05500DAT",
+};
 
 [[nodiscard]] bool is_game_save_name(std::string_view folder_name);
 // "Game data", "Downloaded quests", "Install data", or the name itself.

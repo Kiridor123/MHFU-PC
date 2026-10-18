@@ -10,6 +10,7 @@
 #include "overlays.hpp"
 #include "game/guest_ram.hpp"
 #include "game/layered_armor.hpp"
+#include "install/game_identity.hpp"
 #include "platform/utf8_path.hpp"
 
 #include "audio/audio_sink.hpp"
@@ -629,6 +630,22 @@ void register_display_ctrl(HleRegistrar &hle) {
             if (!at_flip) media().renderer->sample_pad();
             const gpu::PadState pad = media().renderer->pad();
             buttons = pad.buttons;
+            if (std::strcmp(install::kDiscId, "ULUS10391") == 0 &&
+                settings::current().right_stick == settings::RightStick::Camera) {
+                auto &memory = rt.memory();
+                bool menu_active = true;
+                if (memory.contains(0x08A62D84u, 4u)) {
+                    const std::uint32_t pad_ptr = memory.load32(0x08A62D84u);
+                    if (pad_ptr != 0u && memory.contains(pad_ptr, 24u)) {
+                        menu_active = (memory.load8(pad_ptr + 23u) != 0);
+                    }
+                }
+                if (menu_active) {
+                    buttons = (buttons & ~pad.right_stick_dpad) | pad.arrow_dpad;
+                } else {
+                    buttons = (buttons & ~pad.arrow_dpad) | pad.right_stick_dpad;
+                }
+            }
             fast_loading::note_buttons(buttons != 0u);
             analog_x = pad.analog_x;
             analog_y = pad.analog_y;

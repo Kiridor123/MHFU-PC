@@ -522,6 +522,8 @@ void read_gamepad(SDL_Gamepad *device, const input::PadState &mapped, PadState &
     const PadTuning tuning = pad_tuning();
     std::uint32_t &buttons = pad.buttons;
     buttons |= mapped.buttons;
+    constexpr std::uint32_t kDpadBits = 0x0010u | 0x0020u | 0x0040u | 0x0080u;
+    pad.arrow_dpad |= mapped.buttons & kDpadBits;
     // No shipped preset puts fast-forward on a gamepad, but a player may.
     pad.fast_forward = pad.fast_forward || mapped.fast_forward;
     analog_x += mapped.stick_x;
@@ -545,10 +547,14 @@ void read_gamepad(SDL_Gamepad *device, const input::PadState &mapped, PadState &
     const bool drives_dpad = (tuning.right_stick_mode == settings::RightStick::DPad) ||
         (tuning.right_stick_mode == settings::RightStick::Camera && std::strcmp(install::kDiscId, "ULUS10391") == 0);
     if (drives_dpad) {
-        if (right_x < -tuning.right_stick) buttons |= 0x0080u;
-        if (right_x > tuning.right_stick) buttons |= 0x0020u;
-        if (right_y < -tuning.right_stick) buttons |= 0x0010u;
-        if (right_y > tuning.right_stick) buttons |= 0x0040u;
+        std::uint32_t stick_bits = 0u;
+        if (right_x < -tuning.right_stick) stick_bits |= 0x0080u;
+        if (right_x > tuning.right_stick) stick_bits |= 0x0020u;
+        if (right_y < -tuning.right_stick) stick_bits |= 0x0010u;
+        if (right_y > tuning.right_stick) stick_bits |= 0x0040u;
+        buttons |= stick_bits;
+        if (tuning.right_stick_mode == settings::RightStick::Camera)
+            pad.right_stick_dpad |= stick_bits;
     }
 
     // Rescale the live range, otherwise leaving the dead zone snaps the stick
@@ -1650,21 +1656,13 @@ struct VulkanRenderer::Impl {
         const bool is_uma = !has_dedicated_vram || (max_bar_heap >= 1024ull * 1024ull * 1024ull);
 
         // Budget sizing:
-        // Complex multi-pass areas (e.g. Snowy Mountains Area 5 ice cave reflection pass) submit
-        // ~75-85 MiB of geometry and uniforms per frame.
-        // On UMA architectures (Android, Intel N100, Steam Deck, AMD APUs) and systems with large
-        // ReBAR (>= 512 MiB), grant 112 MiB per frame region for plenty of headroom.
-        // On discrete GPUs with traditional 256 MiB BAR, allocate 96 MiB per frame region with
-        // 8 MiB scratch, comfortably fitting Area 5 with a 20 MiB safety margin.
-        if (is_uma || max_bar_heap >= 512ull * 1024ull * 1024ull) {
-            vertex_buffer_bytes = 112u * 1024u * 1024u;
-            index_buffer_bytes = 24u * 1024u * 1024u;
-            present_scratch_bytes = 16u * 1024u * 1024u;
-        } else {
-            vertex_buffer_bytes = 96u * 1024u * 1024u;
-            index_buffer_bytes = 16u * 1024u * 1024u;
-            present_scratch_bytes = 8u * 1024u * 1024u;
-        }
+        // Complex multi-pass areas (e.g. Snowy Mountains Area 5 ice cave reflection passes,
+        // and Jungle canopy with dense trees) submit 90-110 MiB of geometry and uniforms.
+        // Grant 128 MiB per frame region with 16 MiB present scratch and 24 MiB index buffer
+        // to guarantee no geometry, trees, character models, or HUD elements are ever dropped.
+        vertex_buffer_bytes = 128u * 1024u * 1024u;
+        index_buffer_bytes = 24u * 1024u * 1024u;
+        present_scratch_bytes = 16u * 1024u * 1024u;
 
         if (const char *env_vert = std::getenv("MHP3RD_VERTEX_BUFFER_MIB")) {
             char *end = nullptr;
@@ -6178,6 +6176,8 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     PadState pad{};
     pad.buttons = typed.buttons | touch_mapped.buttons;
     pad.fast_forward = typed.fast_forward || touch_mapped.fast_forward;
+    constexpr std::uint32_t kDpadBits = 0x0010u | 0x0020u | 0x0040u | 0x0080u;
+    pad.arrow_dpad |= (typed.buttons | touch_mapped.buttons) & kDpadBits;
     int analog_x = typed.stick_x + touch_mapped.stick_x;
     int analog_y = typed.stick_y + touch_mapped.stick_y;
     const int camera_x = std::clamp(typed.camera_x + touch_mapped.camera_x, -127, 127);
@@ -6190,10 +6190,14 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
         pad.right_x = static_cast<std::uint8_t>(0x80 + camera_x);
         pad.right_y = static_cast<std::uint8_t>(0x80 + camera_y);
     } else if (drives_dpad_typed) {
-        if (camera_x < 0) pad.buttons |= 0x0080u;
-        if (camera_x > 0) pad.buttons |= 0x0020u;
-        if (camera_y < 0) pad.buttons |= 0x0010u;
-        if (camera_y > 0) pad.buttons |= 0x0040u;
+        std::uint32_t stick_bits = 0u;
+        if (camera_x < 0) stick_bits |= 0x0080u;
+        if (camera_x > 0) stick_bits |= 0x0020u;
+        if (camera_y < 0) stick_bits |= 0x0010u;
+        if (camera_y > 0) stick_bits |= 0x0040u;
+        pad.buttons |= stick_bits;
+        if (player.right_stick == settings::RightStick::Camera)
+            pad.right_stick_dpad |= stick_bits;
     }
 
     // The gamepad adds to the same bits and offsets, so both sources are live.
@@ -6202,7 +6206,9 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     // So do the on-screen controls.
     if (impl_->touch_visible && !impl_->touch_hud_hidden) {
         const bool action = Impl::action_layout();
-        pad.buttons |= action ? impl_->action_touch.buttons(SDL_GetTicks()) : impl_->touch.buttons();
+        const std::uint32_t touch_buttons = action ? impl_->action_touch.buttons(SDL_GetTicks()) : impl_->touch.buttons();
+        pad.buttons |= touch_buttons;
+        pad.arrow_dpad |= touch_buttons & kDpadBits;
         const input::touch::Point stick = action ? impl_->action_touch.stick() : impl_->touch.stick();
         analog_x += static_cast<int>(std::lround(stick.x * 127.0f));
         analog_y += static_cast<int>(std::lround(stick.y * 127.0f));
@@ -6213,10 +6219,14 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
             const float rx = tuning.invert_x ? -rstick.x : rstick.x;
             const float ry = tuning.invert_y ? -rstick.y : rstick.y;
             if (drives_dpad_typed) {
-                if (rx < -0.25f) pad.buttons |= 0x0080u; // Left
-                if (rx > 0.25f) pad.buttons |= 0x0020u;  // Right
-                if (ry < -0.25f) pad.buttons |= 0x0010u; // Up
-                if (ry > 0.25f) pad.buttons |= 0x0040u;  // Down
+                std::uint32_t stick_bits = 0u;
+                if (rx < -0.25f) stick_bits |= 0x0080u; // Left
+                if (rx > 0.25f) stick_bits |= 0x0020u;  // Right
+                if (ry < -0.25f) stick_bits |= 0x0010u; // Up
+                if (ry > 0.25f) stick_bits |= 0x0040u;  // Down
+                pad.buttons |= stick_bits;
+                if (player.right_stick == settings::RightStick::Camera)
+                    pad.right_stick_dpad |= stick_bits;
             } else if (player.right_stick == settings::RightStick::Camera) {
                 pad.right_x = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(rx * 127.0f), 0, 255));
                 pad.right_y = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(ry * 127.0f), 0, 255));
@@ -7565,13 +7575,15 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
         if (raw)
             std::memcpy(out, call.raw_vertices, static_cast<std::size_t>(vertex_bytes));
-        else
+        else {
+            if (skinned) impl.recording_frame.skinned.reserve(impl.recording_frame.skinned.size() + call.vertices.size());
             for (const Vertex &vertex : call.vertices) {
                 const GpuVertex converted = to_gpu(vertex);
-                std::memcpy(out, &converted, sizeof(GpuVertex));
+                *reinterpret_cast<GpuVertex *>(out) = converted;
                 out += sizeof(GpuVertex);
                 if (skinned) impl.recording_frame.skinned.push_back(converted);
             }
+        }
         if (!merge)
             std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + index_start, impl.direct_indices.data(),
                 impl.direct_indices.size() * sizeof(std::uint16_t));
@@ -8605,7 +8617,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
             }
             // A raw skinned group is skinned on the GPU: its bones are blended
             // instead, which blends the skinned vertices the same way.
-            if (drawn.raw_block != kNone && next.raw_block != kNone) {
+            if (drawn.raw_block != kNone && next.raw_block != kNone && next.vertex_count == drawn.vertex_count) {
                 const RawBlock &a = older.raws[drawn.raw_block];
                 const RawBlock &b = newer.raws[next.raw_block];
                 if (a.format == b.format) {

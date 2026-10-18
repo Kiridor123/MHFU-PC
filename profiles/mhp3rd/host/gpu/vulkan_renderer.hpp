@@ -36,6 +36,8 @@ struct PadState {
     // The host's fast-forward bind (kernel/fast_forward.hpp), never shown to
     // the game.
     bool fast_forward{};
+    std::uint32_t right_stick_dpad{};
+    std::uint32_t arrow_dpad{};
 };
 
 // The mouse the input script's events come from. With scripted input on,

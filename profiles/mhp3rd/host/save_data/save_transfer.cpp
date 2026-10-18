@@ -3,9 +3,11 @@
 #include "save_data/param_sfo.hpp"
 #include "save_data/savedata_crypto.hpp"
 
+#include "install/game_identity.hpp"
 #include "platform/utf8_path.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <ctime>
 #include <fstream>
 #include <iterator>
@@ -26,7 +28,23 @@ constexpr std::size_t kFileListEntrySize = 32u;
 constexpr std::size_t kFileListNameSize = 13u;
 // The folders an export carries: the install data is a cache the game
 // rebuilds, and it is several times the size of the rest.
-constexpr std::string_view kExportedFolders[] = {"ULJM05800", "ULJM05800QST"};
+constexpr std::string_view kExportedFolders[] = {
+    "ULJM05800", "ULJM05800QST",
+    "ULUS10391", "ULUS10391QST",
+    "ULES01213", "ULES01213QST",
+    "ULJM05500", "ULJM05500QST",
+};
+
+Block block_from_hex(const char *hex) {
+    Block out{};
+    const auto nibble = [](char c) -> std::uint8_t {
+        if (c >= '0' && c <= '9') return static_cast<std::uint8_t>(c - '0');
+        return static_cast<std::uint8_t>((c | 0x20) - 'a' + 10);
+    };
+    for (std::size_t i = 0; i < out.size(); ++i)
+        out[i] = static_cast<std::uint8_t>((nibble(hex[2 * i]) << 4u) | nibble(hex[2 * i + 1]));
+    return out;
+}
 
 struct Session {
     std::mutex mutex;
@@ -130,21 +148,25 @@ bool is_game_save_name(std::string_view folder_name) {
 }
 
 std::string save_label(std::string_view folder_name) {
-    if (folder_name == "ULJM05800") return "Game data";
-    if (folder_name == "ULJM05800QST") return "Downloaded quests";
-    if (folder_name == "ULJM05800DAT") return "Install data";
+    if (folder_name.ends_with("QST")) return "Downloaded quests";
+    if (folder_name.ends_with("DAT")) return "Install data";
+    if (is_game_save_name(folder_name)) return "Game data";
     return std::string(folder_name);
 }
 
 void remember_game_key(const std::string &game_name, const Block &key) {
-    if (game_name != kGameName || is_zero(key)) return;
+    if (is_zero(key) || !is_game_save_name(game_name)) return;
     std::lock_guard lock(session().mutex);
     session().key = key;
 }
 
 std::optional<Block> game_key() {
     std::lock_guard lock(session().mutex);
-    return session().key;
+    if (session().key) return session().key;
+    if (std::strcmp(install::kDiscId, "ULUS10391") == 0) {
+        return block_from_hex("4a1ff359aeb6eff81ca8cb23bca57bb3");
+    }
+    return std::nullopt;
 }
 
 void set_memory_stick(const fs::path &memory_stick) {
@@ -241,7 +263,7 @@ SaveCheck check_save_folder(const fs::path &folder, const std::optional<Block> &
     // The game data and the quests are written through the save-data utility,
     // which lists their file; the install data is written file by file and
     // lists none.
-    if (listed.empty() && check.name != "ULJM05800DAT") {
+    if (listed.empty() && !check.name.ends_with("DAT")) {
         check.problem = "PARAM.SFO lists no data file.";
         return check;
     }
@@ -382,7 +404,7 @@ ExportResult export_saves(
         result.error = "The folder " + text(target) + " does not exist.";
         return result;
     }
-    result.folder = unused_path(target, "MHP3rd saves " + timestamp_for_path(time));
+    result.folder = unused_path(target, std::string(install::kProjectName) + " saves " + timestamp_for_path(time));
     const fs::path savedata = result.folder / "PSP" / "SAVEDATA";
     for (const std::string &name : names) {
         std::string error;
