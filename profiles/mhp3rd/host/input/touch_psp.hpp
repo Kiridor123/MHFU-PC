@@ -34,7 +34,7 @@ inline constexpr std::size_t kPspCombos = 8u;
 
 struct PspLayout {
     std::array<Placement, kPspElements> elements{};
-    bool floating_stick{true};
+    bool floating_stick{false};
     [[nodiscard]] Placement &at(PspElement e) { return elements[static_cast<std::size_t>(e)]; }
     [[nodiscard]] const Placement &at(PspElement e) const { return elements[static_cast<std::size_t>(e)]; }
     friend bool operator==(const PspLayout &, const PspLayout &) = default;

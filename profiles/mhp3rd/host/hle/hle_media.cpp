@@ -634,11 +634,43 @@ void register_display_ctrl(HleRegistrar &hle) {
                 settings::current().right_stick == settings::RightStick::Camera) {
                 auto &memory = rt.memory();
                 bool menu_active = true;
-                if (memory.contains(0x08A62D84u, 4u)) {
+                if (memory.contains(0x08A62D84u, 4u) &&
+                    memory.contains(0x089CC558u, 4u) &&
+                    memory.contains(0x089CBD0Cu, 4u) &&
+                    memory.contains(0x089CBD04u, 4u) &&
+                    memory.contains(0x08A62D80u, 4u)) {
                     const std::uint32_t pad_ptr = memory.load32(0x08A62D84u);
-                    if (pad_ptr != 0u && memory.contains(pad_ptr, 24u)) {
-                        menu_active = (memory.load8(pad_ptr + 23u) != 0);
+                    const std::uint32_t sys_ptr = memory.load32(0x089CC558u);
+                    const std::uint32_t hud_ptr = memory.load32(0x089CBD0Cu);
+                    const std::uint32_t cam_mgr = memory.load32(0x089CBD04u);
+                    const std::uint32_t ui_ptr = memory.load32(0x08A62D80u);
+                    const bool utility_menu =
+                        (pad_ptr == 0u || !memory.contains(pad_ptr, 24u) || memory.load8(pad_ptr + 23u) != 0u);
+                    bool sys_menu = (sys_ptr == 0u || !memory.contains(sys_ptr, 64u));
+                    if (!sys_menu) {
+                        const std::uint8_t sys_modal = memory.load8(sys_ptr + 46u);
+                        sys_menu = (memory.load8(sys_ptr + 16u) != 0u || (sys_modal >= 3u && sys_modal <= 8u));
                     }
+                    const bool hud_menu =
+                        (hud_ptr == 0u || !memory.contains(hud_ptr, 1600u) ||
+                         memory.load8(hud_ptr + 1364u) != 0u ||
+                         memory.load8(hud_ptr + 1540u) != 0u ||
+                         memory.load8(hud_ptr + 1327u) != 0u);
+                    bool cam_blocked = (cam_mgr == 0u || !memory.contains(cam_mgr, 2740u) ||
+                                        memory.load8(cam_mgr + 2701u) != 0u ||
+                                        memory.load8(cam_mgr + 2401u) != 0u);
+                    if (!cam_blocked) {
+                        const std::uint32_t pl_ptr = memory.load32(cam_mgr + 2692u);
+                        if (pl_ptr == 0u || !memory.contains(pl_ptr, 1600u) ||
+                            memory.load8(pl_ptr + 1362u) != 0u ||
+                            (memory.load32(pl_ptr + 1556u) & 2u) != 0u ||
+                            memory.load8(pl_ptr + 1380u) != 0u) {
+                            cam_blocked = true;
+                        }
+                    }
+                    const bool item_bar_active =
+                        (ui_ptr != 0u && memory.contains(ui_ptr, 128u) && memory.load8(ui_ptr + 116u) != 0u);
+                    menu_active = utility_menu || sys_menu || hud_menu || cam_blocked || item_bar_active;
                 }
                 if (menu_active) {
                     buttons = (buttons & ~pad.right_stick_dpad) | pad.arrow_dpad;

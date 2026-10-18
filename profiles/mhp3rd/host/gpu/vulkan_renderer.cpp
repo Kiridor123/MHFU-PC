@@ -1659,23 +1659,36 @@ struct VulkanRenderer::Impl {
         }
 
         const bool is_uma = !has_dedicated_vram || (max_bar_heap >= 1024ull * 1024ull * 1024ull);
+#if defined(__ANDROID__)
+        constexpr bool is_mobile = true;
+#else
+        constexpr bool is_mobile = false;
+#endif
+        const bool shared_ram_budget = is_uma || is_mobile;
 
         // Budget sizing:
         // With sparse indexed primitive compaction enabled, even heavy multi-pass
         // stages (Desert stage112, Ice Cave stage092, Jungle stage141) use under
-        // 4 MiB of vertex buffer per frame. Sizing 48 MiB/frame (160 MiB total)
-        // and 16 MiB/frame index buffer (48 MiB total) lets both buffers reside
-        // inside a 256 MiB DEVICE_LOCAL | HOST_VISIBLE VRAM heap. When sparse
-        // compaction is disabled (MHP3RD_NO_SPARSE_COMPACT), fall back to 160 MiB/frame.
+        // 4 MiB of vertex buffer per frame.
+        // - On discrete GPUs, sizing 48 MiB/frame (160 MiB total) and 16 MiB/frame
+        //   index buffer (48 MiB total) lets both buffers reside inside a 256 MiB
+        //   DEVICE_LOCAL | HOST_VISIBLE VRAM BAR heap.
+        // - On UMA / integrated GPUs (e.g. Intel HD 620 on 8 GB RAM) and Android
+        //   phones sharing system RAM, sizing 24 MiB/frame (80 MiB total) and
+        //   8 MiB/frame index buffer (24 MiB total) saves 104 MiB of pinned
+        //   coherent system memory while keeping >6x headroom per frame.
         const bool sparse_compact = std::getenv("MHP3RD_NO_SPARSE_COMPACT") == nullptr;
-        vertex_buffer_bytes = (sparse_compact ? 48u : 160u) * 1024u * 1024u;
-        index_buffer_bytes = (sparse_compact ? 16u : 32u) * 1024u * 1024u;
-        present_scratch_bytes = (sparse_compact ? 8u : 16u) * 1024u * 1024u;
+        const std::uint32_t default_vert_mib = sparse_compact ? (shared_ram_budget ? 24u : 48u) : 160u;
+        const std::uint32_t default_idx_mib = sparse_compact ? (shared_ram_budget ? 8u : 16u) : 32u;
+        const std::uint32_t default_scratch_mib = sparse_compact ? (shared_ram_budget ? 4u : 8u) : 16u;
+        vertex_buffer_bytes = static_cast<VkDeviceSize>(default_vert_mib) * 1024u * 1024u;
+        index_buffer_bytes = static_cast<VkDeviceSize>(default_idx_mib) * 1024u * 1024u;
+        present_scratch_bytes = static_cast<VkDeviceSize>(default_scratch_mib) * 1024u * 1024u;
 
         if (const char *env_vert = std::getenv("MHP3RD_VERTEX_BUFFER_MIB")) {
             char *end = nullptr;
             const unsigned long mib = std::strtoul(env_vert, &end, 10);
-            if (mib >= 32ul && mib <= 512ul) {
+            if (mib >= 16ul && mib <= 512ul) {
                 vertex_buffer_bytes = static_cast<VkDeviceSize>(mib) * 1024u * 1024u;
             }
         }
@@ -2785,9 +2798,13 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     // off there unless MHP3RD_ROBUST_BUFFERS is set.
     VkPhysicalDeviceProperties robust_props{};
     vkGetPhysicalDeviceProperties(impl.physical_device, &robust_props);
-    const bool is_igpu = robust_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
-    const bool want_robust = is_igpu ? (std::getenv("MHP3RD_ROBUST_BUFFERS") != nullptr)
-                                     : (std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr);
+#if defined(__ANDROID__)
+    const bool is_igpu_or_mobile = true;
+#else
+    const bool is_igpu_or_mobile = robust_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+#endif
+    const bool want_robust = is_igpu_or_mobile ? (std::getenv("MHP3RD_ROBUST_BUFFERS") != nullptr)
+                                               : (std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr);
     if (supported_features.robustBufferAccess == VK_TRUE && want_robust && !impl.gpu_compat)
         enabled_features.robustBufferAccess = VK_TRUE;
     impl.robust_buffers = enabled_features.robustBufferAccess == VK_TRUE;

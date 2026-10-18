@@ -53,11 +53,15 @@ Define cómo se envían los fotogramas terminados al monitor:
 
 ---
 
-## 🎯 2. Pestaña de Controles
+## 🎯 2. Pestaña de Controles (PC y Android)
 
-### Desacoplamiento de Menús y Cámara
-- **Stick Derecho:** Controla la rotación fluida de la cámara tridimensional durante la cacería, exploración y combate.
-- **Teclas de Flechas / Cruceta (D-Pad):** Navega **exclusivamente por los menús, opciones, cuadro de diálogo y rueda de objetos**. Ya no mueven la cámara mientras estás navegando por los menús, replicando la experiencia de un juego moderno de PC.
+### Desacoplamiento de Menús Internos del Juego y Cámara 3D
+- **Stick Derecho (o teclas de cámara `I/J/K/L`):** Es el único que controla la rotación de la cámara tridimensional durante la exploración y el combate.
+- **Teclas de Flechas / Cruceta (D-Pad):** Funcionan **dentro del juego exclusivamente para interactuar con todos los menús internos** (pantalla de título, menú Start en misión, baúl de objetos, baúl de equipamiento, herrería, tiendas, tablón de misiones, diálogos con NPCs y barra de objetos al mantener `L`). Durante el combate y movimiento libre en 3D, presionar las flechas **no mueve la cámara**.
+
+### Controles Táctiles en Android
+- **Joystick Izquierdo Fijo:** Permanece anclado en su posición fija en la esquina inferior izquierda para un control de movimiento preciso y consistente sin desplazarse por la pantalla.
+- **Joystick Derecho Flotante:** Se mantiene dinámico en la mitad derecha de la pantalla para girar la cámara cómodamente desde cualquier punto donde apoyes el pulgar derecho.
 
 ### Ajustes de Apuntado y Sensibilidad
 - **Sensibilidad de cámara:** Ajusta la velocidad de giro de la cámara (valor sugerido: 180 - 200).
@@ -88,15 +92,21 @@ Pokke utiliza el formato estándar y oficial de partidas guardadas de la PSP:
 ## 🌐 5. Multijugador Ad-hoc
 
 Pokke cuenta con soporte nativo para el modo cooperativo de la sala de reunión de la aldea:
-- Permite cazar en red local con otros jugadores en PC, Steam Deck o incluso con consolas PSP físicas y emuladores PPSSPP conectados a la misma red o mediante servidores VPN virtuales (ZeroTier, Radmin VPN).
+- Permite cazar en red local con otros jugadores en PC, Android, Steam Deck o incluso con consolas PSP físicas y emuladores PPSSPP conectados a la misma red o mediante servidores VPN virtuales (ZeroTier, Radmin VPN).
 - En la pestaña **Red**, introduce el servidor o dirección IP del anfitrión para unirte a la sala de cazadores.
 
 ---
 
-## ⚙️ Preajustes Recomendados (Presets)
+## ⚙️ Preajustes Recomendados (Presets) y Optimizaciones Nativas
+
+El motor gráfico Vulkan de Pokke incluye optimizaciones de nivel nativo activas por defecto en todas las plataformas:
+1. **Compactación dispersa de vértices indexados (`O(1)`):** Reduce la decodificación y subida de geometría de ~150 MiB/fotograma a menos de 1 MiB/fotograma en mapas grandes (Jungla, Desierto, Montañas Nevadas).
+2. **Descarte de cámara por hardware (`GE BBOX + BJUMP`):** Descarta los bloques del mapa fuera del campo de visión antes de procesarlos.
+3. **Lectura de framebuffer bajo demanda:** Elimina las pausas CPU-GPU por fotograma, vital para arquitecturas móviles (MediaTek Mali / Snapdragon Adreno) y gráficas integradas.
+4. **Presupuesto de memoria adaptativo UMA/Móvil y shaders sin sobrecarga (`robustBufferAccess off`):** En PCs con gráficos integrados (como Intel Core i5 + Intel HD 620 con 8 GB de RAM) y teléfonos Android, ahorra más de 100 MiB de memoria RAM coherente y elimina comprobaciones redundantes por vértice en la GPU.
 
 ### 🚀 Preset 1: Gráficos Dedicados (AMD Radeon RX 570, GTX 1060+) - 1080p 60 FPS
-Configuración pensada para máxima fidelidad visual y 100% de velocidad continua en mapas exigentes como el Desierto y la Jungla:
+Configuración pensada para máxima fidelidad visual y 100% de velocidad continua en todos los mapas:
 - **Resolución interna:** `×4` (1920×1088, Full HD nativo).
 - **Modo de sincronización:** `Mailbox`.
 - **Tasa de fotogramas:** `60 FPS`.
@@ -104,14 +114,19 @@ Configuración pensada para máxima fidelidad visual y 100% de velocidad continu
 - **Filtro de texturas:** `Suave`.
 - **Texturas de interfaz (HUD):** `Bilineal nítido`.
 
-### ⚡ Preset 2: Gráficos Integrados / Equipos Modestos (Intel UHD / AMD Vega)
-Configuración para portátiles delgadas o computadoras de oficina con iGPU:
-- **Resolución interna:** `×2` (960×544) o `×3` (1440×816).
+### ⚡ Preset 2: PCs con Gráficos Integrados (Intel Core i5 + Intel HD 620 / 8 GB RAM)
+Configuración óptima para portátiles y PCs con memoria compartida:
+- **Resolución interna:** `×2` (960×544) o `×3` (1440×816, 720p+).
 - **Modo de sincronización:** `Mailbox`.
-- **Tasa de fotogramas:** `30 FPS` (fidelidad original) o `60 FPS`.
-- **Texturas de interfaz:** `Desactivado`.
+- **Tasa de fotogramas:** `30 FPS` (velocidad nativa sin gasto extra de interpolación) o `60 FPS`.
+- **Texturas de interfaz (HUD):** `Bilineal nítido` o `Desactivado`.
 
-### 🔋 Preset 3: Steam Deck / Portátiles (Batería Óptima)
+### 📱 Preset 3: Teléfonos Android (MediaTek Dimensity/Helio, Mali, Snapdragon Adreno)
+- **Resolución interna:** `×2` (960×544, por defecto) o `×3` (1440×816).
+- **Relación de aspecto:** `Llenar` (pantalla completa panorámica).
+- **Controles táctiles:** Joystick izquierdo fijo + Joystick derecho flotante.
+
+### 🔋 Preset 4: Steam Deck / Portátiles (Batería Óptima)
 - **Resolución interna:** `×3` (1440×816).
 - **Relación de aspecto:** `Llenar` (Llena la pantalla 16:10 de 1280×800 de la Steam Deck sin barras negras).
 - **Modo de sincronización:** `Mailbox`.

@@ -141,7 +141,7 @@ constexpr const char *kRetiredTriggerProfileKey = "input.trigger_profile";
 //          text.crisp=1 into every file they saved, chosen or not, so a file
 //          without a version gets the new default.
 constexpr const char *kVersionKey = "settings.version";
-constexpr int kVersion = 2;
+constexpr int kVersion = 3;
 constexpr std::string_view kBindPrefix = "input.bind.";
 constexpr std::string_view kPadPrefix = "input.pad.";
 
@@ -835,8 +835,10 @@ bool upgrade(Entries &entries) {
     std::uint32_t version = 1u;
     if (const auto found = entries.find(kVersionKey); found != entries.end())
         (void)parse_uint(found->second, 1u, 1000u, version);
-    if (version >= 2u) return false;
-    return entries.erase("text.crisp") != 0u;
+    bool dropped = false;
+    if (version < 2u) dropped = entries.erase("text.crisp") != 0u || dropped;
+    if (version < 3u) dropped = entries.erase("input.touch_psp.floating_stick") != 0u || dropped;
+    return dropped;
 }
 
 void read_entries(Settings &values, const Entries &entries) {

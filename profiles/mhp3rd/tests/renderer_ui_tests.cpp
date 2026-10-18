@@ -2961,9 +2961,9 @@ void touch_editor_contracts(gpu::VulkanRenderer &renderer) {
     frame();
     frame();
     activate("Floating Stick");
-    expect(!player.touch_psp.floating_stick, "PSP editor switches to a fixed stick");
+    expect(player.touch_psp.floating_stick, "PSP editor switches to a floating stick");
     activate("Floating Stick");
-    expect(player.touch_psp.floating_stick, "PSP editor restores the floating stick");
+    expect(!player.touch_psp.floating_stick, "PSP editor restores the fixed stick");
     const auto psp_haptics = player.touch_haptics;
     activate("Haptic Feedback");
     expect(player.touch_haptics != psp_haptics, "haptic feedback is editable in the PSP layout too");

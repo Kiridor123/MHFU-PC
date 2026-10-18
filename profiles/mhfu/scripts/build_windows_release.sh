@@ -148,41 +148,46 @@ fi
 # Portable marker so data/ms0 stays right next to Pokke.exe
 printf "%s\r\n" "This file makes Pokke portable: saves and settings are stored in the data folder next to Pokke.exe." > "$release_folder/portable.txt"
 
-# Default optimized settings.ini (1x internal scale for integrated GPUs, 30 fps, vsync, etc.)
+# Default optimized settings.ini (2x internal scale, Mailbox present mode, 30 fps, fast loading)
 mkdir -p "$release_folder/data"
 cat << 'EOF' | sed 's/$/\r/' > "$release_folder/data/settings.ini"
-[video]
-internal_scale = 1
-frame_rate = 30
-frame_rate_auto = true
-ui_textures = off
-texture_pack = false
-gpu_compat = auto
-present_mode = fifo
-
-[text]
-crisp = false
+settings.version=3
+video.internal_scale=2
+video.present_mode=mailbox
+video.frame_rate=30
+video.frame_rate_auto=1
+video.fast_loading=1
+video.ui_textures=sharp
+video.gpu_compat=auto
+text.crisp=0
 EOF
+
+# Copy Spanish configuration guide into the release folder
+if [[ -f "$repo_dir/docs/GUIA_CONFIGURACION.md" ]]; then
+    cp "$repo_dir/docs/GUIA_CONFIGURACION.md" "$release_folder/"
+fi
 
 # README
 cat << 'EOF' | sed 's/$/\r/' > "$release_folder/README.txt"
 ========================================================
   Pokke - Monster Hunter Freedom Unite (PC Native Port)
-  Windows x86-64 Release
+  Windows x86-64 Release (v1.2.0)
 ========================================================
 
 Instrucciones de uso:
 1. Extrae esta carpeta en cualquier lugar de tu PC (por ejemplo, en el Escritorio o Disco C:).
-2. Coloca tu archivo .iso de Monster Hunter Freedom Unite (versión USA ULUS-10391) dentro de esta carpeta o seleccionalo cuando te lo pida.
+2. Coloca tu archivo .iso de Monster Hunter Freedom Unite (version USA ULUS-10391) dentro de esta carpeta o seleccionalo cuando te lo pida.
 3. Ejecuta Pokke.exe.
-4. Presiona [F1] o Esc durante el juego para abrir el menu de opciones.
-5. Si juegas en una laptop con grafica integrada (como Intel HD Graphics), en F1 > Video puedes pulsar "Low-Spec / iGPU Preset (Max FPS)" para rendimiento maximo a 30 FPS estables.
+4. Presiona [Esc] o [L3 + R3] durante el juego para abrir el menu de opciones en espanol.
+5. Incluye optimizaciones nativas de compactacion de vertices y descarte de camara (BBOX/BJUMP) para tarjetas dedicadas y graficas integradas (Intel HD 620 / UHD / AMD Vega).
+6. Consulta GUIA_CONFIGURACION.md para ver los preajustes recomendados segun tu PC.
 
-Para jugar con mando:
-- Conecta cualquier mando (Xbox, PlayStation, etc.) y se detectara automaticamente.
+Controles:
+- Las flechas / cruceta (D-Pad) navegan exclusivamente por los menus internos del juego.
+- El joystick derecho (o teclas I/J/K/L) controla la camara 3D durante la caceria.
 
-Tus partidas guardadas se guardan de forma portatil en:
-  data\ms0\PSP\SAVEDATA\
+Tus partidas guardadas (compatibles con PPSSPP) se guardan de forma portatil en:
+  data\ms0\PSP\SAVEDATA\ULUS10391\
 ========================================================
 EOF
 

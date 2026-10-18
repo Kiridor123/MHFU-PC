@@ -391,7 +391,7 @@ int main() {
     {
         using namespace mhp3rd::input::touch;
         Settings edited = from_entries({});
-        edited.touch_psp.floating_stick = false;
+        edited.touch_psp.floating_stick = true;
         edited.touch_psp.at(PspElement::Circle) = {Anchor::Left, 0.6f, 0.7f, 0.09f, 0x2200, false};
         check(add_psp_combo(edited.touch_psp).has_value(), "a PSP combination can be added before saving");
         edited.touch_psp.at(PspElement::Combo1).shown = false;
@@ -431,7 +431,7 @@ int main() {
         const auto invalid = from_entries({{"input.touch_psp.circle", "bad"}, {"input.touch_psp.floating_stick", "bad"},
             {"input.touch_psp.menu", "left 0.1 0.1 0.04 0x2000 0"}});
         check(invalid.touch_psp.at(PspElement::Circle) == default_psp_layout().at(PspElement::Circle) &&
-                invalid.touch_psp.floating_stick && invalid.touch_psp.at(PspElement::Menu).shown &&
+                !invalid.touch_psp.floating_stick && invalid.touch_psp.at(PspElement::Menu).shown &&
                 invalid.touch_psp.at(PspElement::Menu).buttons == 0,
             "invalid PSP values preserve defaults and cannot disable menu access");
     }

@@ -278,7 +278,7 @@ void Controls::finger_down(std::uint64_t id, Point at) {
         slot->role = Role::DPad;
         if (dpad_held_by(*slot) != 0u) ++haptics_;
     } else if (layout_.stick_shown && !stick_.active &&
-        (layout_.floating_stick ? at.x < layout_.stick_split : layout_.stick.contains(at, 1.45f))) {
+        (layout_.floating_stick ? at.x < layout_.stick_split : layout_.stick.contains(at, 1.65f))) {
         slot->role = Role::Stick;
         stick_ = {true, layout_.floating_stick ? at : layout_.stick.centre, at};
     } else if (at.x >= layout_.stick_split) {
