@@ -37,7 +37,7 @@ void test_android() {
     check(android.analog_camera && android.right_stick == RightStick::Camera,
         "the analog camera is on, as the touch camera needs");
     check(android.touch_controls, "the touch controls are on");
-    check(android.frame_rate == FrameRate::Fps30 && android.frame_rate_auto, "30 fps, lowered when behind");
+    check(android.frame_rate == FrameRate::Fps60 && !android.frame_rate_auto, "60 fps, held where the player puts it");
     check(android.present_mode == PresentMode::Fifo && android.perf == PerfDisplay::Off,
         "vsync on and no performance overlay");
     check(android.fast_loading, "a phone loads fast too");
@@ -345,12 +345,29 @@ void test_crisp_text() {
     Settings chosen = from_entries({});
     chosen.crisp_text = true;
     const Entries written = to_entries(chosen);
-    check(written.count("settings.version") == 1u && written.at("settings.version") == "2",
+    check(written.count("settings.version") == 1u && written.at("settings.version") == "4",
         "every file written says its version");
     check(from_entries(written).crisp_text, "Sharp text turned on now stays on");
     Entries off = written;
     off["text.crisp"] = "0";
     check(!from_entries(off).crisp_text, "and off stays off");
+}
+
+// Version 3 Android files wrote frame_rate_auto=1 as the default; from
+// version 4 the file's value is the player's. Desktop keeps it either way.
+void test_frame_rate_auto_upgrade() {
+    Entries earlier = to_entries(from_entries({}));
+    earlier["settings.version"] = "3";
+    earlier["video.frame_rate_auto"] = kPlatform == Platform::Android ? "1" : "0";
+    const bool expected_old = kPlatform == Platform::Android ? defaults().frame_rate_auto : false;
+    check(from_entries(earlier).frame_rate_auto == expected_old,
+        "a version 3 Android default is dropped; a desktop choice is kept");
+    Entries current = earlier;
+    current["settings.version"] = "4";
+    current["video.frame_rate_auto"] = "1";
+    check(from_entries(current).frame_rate_auto, "a version 4 choice stays on");
+    current["video.frame_rate_auto"] = "0";
+    check(!from_entries(current).frame_rate_auto, "and off stays off");
 }
 
 void test_background_settings() {
@@ -438,6 +455,7 @@ int main() {
     test_performance_modes();
     test_background_settings();
     test_crisp_text();
+    test_frame_rate_auto_upgrade();
     test_layered_armor();
     test_desktop_is_the_declared_defaults();
     test_android();

@@ -24,7 +24,8 @@ SetRate load_set_rate() {
 } // namespace
 
 bool request_display_frame_rate(ANativeWindow *window, float rate) {
-    if (window == nullptr || !std::isfinite(rate) || rate <= 0.0f) return false;
+    // 0 clears an earlier request: the surface has no preferred rate.
+    if (window == nullptr || !std::isfinite(rate) || rate < 0.0f) return false;
     if (std::getenv("MHP3RD_NO_DISPLAY_RATE_REQUEST") != nullptr) return false;
     static const SetRate set_rate = load_set_rate();
     // DEFAULT compatibility is for games, unlike FIXED_SOURCE for video.

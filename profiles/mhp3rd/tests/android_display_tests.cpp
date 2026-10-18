@@ -61,8 +61,7 @@ int main(int argc, char **argv) {
         auto *second = reinterpret_cast<ANativeWindow *>(2);
         using mhp3rd::android::request_display_frame_rate;
         require(!request_display_frame_rate(nullptr, 120.0f), "missing surface is safe");
-        for (float invalid :
-            {0.0f, -1.0f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
+        for (float invalid : {-1.0f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
             require(!request_display_frame_rate(first, invalid), "invalid target is rejected");
         require(opens == 0 && requests == 0, "invalid requests never load or call an Android API");
         if (scenario == "disabled") {
@@ -79,6 +78,8 @@ int main(int argc, char **argv) {
         if (available || scenario == "rejected") {
             require(requests == 2 && received_window == second && received_rate == 90.0f,
                 "pass the exact surface and current target through the NDK ABI");
+            require(request_display_frame_rate(second, 0.0f) == available && requests == 3 && received_rate == 0.0f,
+                "0 clears the surface's preferred rate");
         } else {
             require(requests == 0, "Android 10 without this symbol never calls it");
         }

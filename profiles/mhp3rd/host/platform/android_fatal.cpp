@@ -56,8 +56,9 @@ std::optional<SavedLogs> save_logs(const fs::path &storage, const std::string &n
     fs::create_directories(local, ec);
     for (const char *file : {"yakumo.log", "yakumo-previous.log", "yakumo-fatal.log"})
         if (fs::exists(storage / file, ec)) fs::copy_file(storage / file, local / file, ec);
-    if (fs::is_directory(storage / "logs", ec))
-        fs::copy(storage / "logs", local / "logs", fs::copy_options::recursive, ec);
+    for (const char *folder : {"logs", "log"})
+        if (fs::is_directory(storage / folder, ec))
+            fs::copy(storage / folder, local / folder, fs::copy_options::recursive, ec);
     const std::optional<PickedExport> copied = pick_folder_and_copy(local);
     fs::remove_all(local.parent_path(), ec);
     if (!copied) return std::nullopt;

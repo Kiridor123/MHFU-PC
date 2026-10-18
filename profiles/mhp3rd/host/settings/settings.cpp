@@ -141,7 +141,7 @@ constexpr const char *kRetiredTriggerProfileKey = "input.trigger_profile";
 //          text.crisp=1 into every file they saved, chosen or not, so a file
 //          without a version gets the new default.
 constexpr const char *kVersionKey = "settings.version";
-constexpr int kVersion = 3;
+constexpr int kVersion = 4;
 constexpr std::string_view kBindPrefix = "input.bind.";
 constexpr std::string_view kPadPrefix = "input.pad.";
 
@@ -838,6 +838,10 @@ bool upgrade(Entries &entries) {
     bool dropped = false;
     if (version < 2u) dropped = entries.erase("text.crisp") != 0u || dropped;
     if (version < 3u) dropped = entries.erase("input.touch_psp.floating_stick") != 0u || dropped;
+    // Earlier Android builds wrote "Lower When Behind" on as their default;
+    // on FIFO-only phones it held a chosen 60 or 90 fps at 30.
+    if (version < 4u && kPlatform == Platform::Android)
+        dropped = entries.erase("video.frame_rate_auto") != 0u || dropped;
     return dropped;
 }
 
@@ -912,8 +916,8 @@ Settings defaults_for(Platform platform) {
         values.aspect = Aspect::Fill;
         values.fullscreen = true;
         values.mouse = false;
-        values.frame_rate = FrameRate::Display;
-        values.frame_rate_auto = true;
+        values.frame_rate = FrameRate::Fps60;
+        values.frame_rate_auto = false;
         values.internal_scale = 2u;
     }
     return values;

@@ -171,7 +171,7 @@ fi
 cat << 'EOF' | sed 's/$/\r/' > "$release_folder/README.txt"
 ========================================================
   Pokke - Monster Hunter Freedom Unite (PC Native Port)
-  Windows x86-64 Release (v1.2.0)
+  Windows x86-64 Release (v1.2.1)
 ========================================================
 
 Instrucciones de uso:

@@ -1484,6 +1484,11 @@ struct VulkanRenderer::Impl {
     // a tiled GPU then does not read the target from memory first.
     // MHP3RD_NO_CLEAR_LOAD always loads, as before.
     std::array<VkRenderPass, 4> discard_passes{};
+    // The pass an interpolated present draws with: it clears both
+    // attachments itself and nothing reads its depth afterwards, so neither
+    // is loaded and the depth is not stored. On a tiled (phone) GPU the depth
+    // then never leaves the chip. MHP3RD_NO_CLEAR_LOAD uses render_pass.
+    VkRenderPass replay_pass{};
     VkExtent2D target_extent{};
 
     VkShaderModule vertex_shader{};
@@ -1962,6 +1967,10 @@ struct VulkanRenderer::Impl {
     // for submit_and_present to present.
     std::optional<std::uint32_t> acquired_image;
     float display_hz{};
+    // The fastest mode the display offers. Android switches the current
+    // mode itself (and not always with an event), so a chosen 60 or 90 fps
+    // is held against what the panel can do, not against its current mode.
+    float max_display_hz{};
     // The newest texture_clock value a destroyed texture had been drawn with:
     // a recorded frame that began before it may name its descriptor.
     std::uint64_t destroyed_texture_clock{};
@@ -1975,7 +1984,7 @@ struct VulkanRenderer::Impl {
     // game nothing; otherwise it is made while the game's code runs, within
     // a budget per game frame. Returns whether a present was made.
     bool poll_presents(std::chrono::steady_clock::time_point now, bool account, bool idle);
-    bool present_between(const pacing::PresentClock::Present &present, bool account);
+    bool present_between(const pacing::PresentClock::Present &present, bool account, bool idle = false);
     void replay(VkCommandBuffer commands, std::uint32_t slot, float t);
     void report_interpolation();
     void reset_interpolation();
@@ -2912,6 +2921,14 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
             if (vkCreateRenderPass(impl.device, &variant_info, nullptr, &impl.discard_passes[variant]) != VK_SUCCESS)
                 impl.discard_passes[variant] = VK_NULL_HANDLE;
         }
+        std::array<VkAttachmentDescription, 2> replay = attachments;
+        replay[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        replay[1].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        replay[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        VkRenderPassCreateInfo replay_info = render_pass_info;
+        replay_info.pAttachments = replay.data();
+        if (vkCreateRenderPass(impl.device, &replay_info, nullptr, &impl.replay_pass) != VK_SUCCESS)
+            impl.replay_pass = VK_NULL_HANDLE;
     }
 
     // Shaders, descriptors and pipeline layout.
@@ -3360,11 +3377,21 @@ void VulkanRenderer::Impl::record_overlay(VkCommandBuffer commands, VkImage dest
 
 void VulkanRenderer::Impl::update_display_info() {
     float refresh = 0.0f;
+    float fastest = 0.0f;
     if (const SDL_DisplayID display = SDL_GetDisplayForWindow(window); display != 0u) {
         if (const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(display); mode != nullptr)
             refresh = mode->refresh_rate;
+        if (const SDL_DisplayMode *mode = SDL_GetDesktopDisplayMode(display); mode != nullptr)
+            fastest = std::max(fastest, mode->refresh_rate);
+        int count = 0;
+        if (SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(display, &count); modes != nullptr) {
+            for (int i = 0; i < count; ++i)
+                if (modes[i] != nullptr) fastest = std::max(fastest, modes[i]->refresh_rate);
+            SDL_free(modes);
+        }
     }
     display_hz = refresh;
+    max_display_hz = std::max(fastest, refresh);
     perf::set_display_info(present_mode_name(present_mode), swapchain_extent.width, swapchain_extent.height, refresh);
     request_display_rate();
 }
@@ -3373,9 +3400,14 @@ void VulkanRenderer::Impl::request_display_rate() {
 #if defined(MHP3RD_ANDROID_APP)
     auto *native_window = static_cast<ANativeWindow *>(
         SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
-    const float rate = static_cast<float>(pacing::requested_rate(frame_rate, display_hz));
+    // 30 fps asks for no rate (0): a request for 30 Hz drops some panels to
+    // 30 Hz, and a later choice of 60 or 90 then waits on a mode switch.
+    const float rate = frame_rate == settings::FrameRate::Fps30
+        ? 0.0f
+        : static_cast<float>(pacing::requested_rate(frame_rate, std::max(display_hz, max_display_hz)));
     if (android::request_display_frame_rate(native_window, rate))
-        std::cout << "[render] requested Android surface frame rate " << rate << " Hz\n";
+        std::cout << "[render] requested Android surface frame rate " << rate << " Hz (display " << display_hz
+                  << " Hz, fastest " << max_display_hz << " Hz)\n";
 #endif
 }
 
@@ -3436,8 +3468,15 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     update_content_rect();
     present_mode = wanted_present_mode();
 
-    std::uint32_t image_count =
-        std::max(capabilities.minImageCount, present_mode == VK_PRESENT_MODE_MAILBOX_KHR ? 3u : 2u);
+#if defined(__ANDROID__)
+    // SurfaceFlinger keeps one image until the next refresh and the
+    // compositor another: with two, an interpolated present between flips
+    // finds none free and is dropped (counted as blocked).
+    const std::uint32_t wanted_images = 3u;
+#else
+    const std::uint32_t wanted_images = present_mode == VK_PRESENT_MODE_MAILBOX_KHR ? 3u : 2u;
+#endif
+    std::uint32_t image_count = std::max(capabilities.minImageCount, wanted_images);
     if (capabilities.maxImageCount != 0u) image_count = std::min(image_count, capabilities.maxImageCount);
     // Transfer source only where offered: it is just for window captures.
     swapchain_usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
@@ -5573,6 +5612,8 @@ void VulkanRenderer::Impl::turn_on_compat(const std::string &reason) {
         if (pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, pass, nullptr);
         pass = VK_NULL_HANDLE;
     }
+    if (replay_pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, replay_pass, nullptr);
+    replay_pass = VK_NULL_HANDLE;
     // GPU timestamps.
     if (gpu_timer != VK_NULL_HANDLE || present_timer != VK_NULL_HANDLE) {
         if (gpu_timer != VK_NULL_HANDLE) vkDestroyQueryPool(device, gpu_timer, nullptr);
@@ -8140,11 +8181,19 @@ std::int64_t to_us(std::chrono::steady_clock::time_point time) {
 } // namespace
 
 double VulkanRenderer::Impl::wanted_rate() const {
-    double rate = pacing::requested_rate(frame_rate, display_hz);
+#if defined(__ANDROID__)
+    // Android lowers the current mode on its own (to 30 or 60 Hz on idle
+    // or for an earlier request) and raises it again for the surface's
+    // requested rate: hold the choice against the fastest mode instead.
+    const float limit_hz = std::max(display_hz, max_display_hz);
+#else
+    const float limit_hz = display_hz;
+#endif
+    double rate = pacing::requested_rate(frame_rate, limit_hz);
     // With vsync the display takes no more than its own rate: more presents
     // would wait for it with the game's time.
-    if (present_mode == VK_PRESENT_MODE_FIFO_KHR && display_hz >= 1.0f)
-        rate = std::min(rate, static_cast<double>(display_hz));
+    if (present_mode == VK_PRESENT_MODE_FIFO_KHR && limit_hz >= 1.0f)
+        rate = std::min(rate, static_cast<double>(limit_hz));
     return std::max(rate, 30.0);
 }
 
@@ -8328,12 +8377,12 @@ bool VulkanRenderer::Impl::poll_presents(std::chrono::steady_clock::time_point n
     const auto present = present_clock.take(to_us(now));
     if (!present) return false;
     const auto start = std::chrono::steady_clock::now();
-    const bool made = present_between(*present, account);
+    const bool made = present_between(*present, account, idle);
     if (!idle) busy_presents += std::chrono::steady_clock::now() - start;
     return made;
 }
 
-bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &present, bool account) {
+bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &present, bool account, bool idle) {
     const perf::SplitScope split(perf::Split::Present);
     using Clock = std::chrono::steady_clock;
     const Clock::time_point start = Clock::now();
@@ -8376,8 +8425,17 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     if (swapchain == VK_NULL_HANDLE) return false;
     std::uint32_t image_index = 0u;
     const perf::Clock::time_point acquire_start = perf::Clock::now();
-    const VkResult acquired =
-        vkAcquireNextImageKHR(device, swapchain, 3'000'000u, acquire_semaphore(commands), VK_NULL_HANDLE, &image_index);
+#if defined(__ANDROID__)
+    // In the kernel's idle time the game waits anyway: wait up to one 60 Hz
+    // refresh for SurfaceFlinger to return an image rather than drop this
+    // present, which on FIFO-only phones dropped most of 60 and 90 fps.
+    const std::uint64_t acquire_timeout_ns = idle ? 16'000'000u : 3'000'000u;
+#else
+    (void)idle;
+    const std::uint64_t acquire_timeout_ns = 3'000'000u;
+#endif
+    const VkResult acquired = vkAcquireNextImageKHR(
+        device, swapchain, acquire_timeout_ns, acquire_semaphore(commands), VK_NULL_HANDLE, &image_index);
     perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
     if (acquired == VK_SUBOPTIMAL_KHR) swapchain_check = true;
@@ -8489,7 +8547,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     Target &target = blend_targets[slot];
     initialize_layouts(commands, target);
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    pass.renderPass = render_pass;
+    pass.renderPass = replay_pass != VK_NULL_HANDLE ? replay_pass : render_pass;
     pass.framebuffer = target.framebuffer;
     pass.renderArea = {{0, 0}, target_extent};
     vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
@@ -9353,6 +9411,7 @@ void VulkanRenderer::shutdown() {
     vkDestroyRenderPass(impl.device, impl.render_pass, nullptr);
     for (VkRenderPass pass : impl.discard_passes)
         if (pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, pass, nullptr);
+    if (impl.replay_pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, impl.replay_pass, nullptr);
     for (VkSemaphore semaphore : impl.image_available) vkDestroySemaphore(impl.device, semaphore, nullptr);
     for (VkSemaphore semaphore : impl.render_finished) vkDestroySemaphore(impl.device, semaphore, nullptr);
     for (Impl::FrameSlot &frame : impl.slots) vkDestroyFence(impl.device, frame.fence, nullptr);
