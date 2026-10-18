@@ -720,16 +720,23 @@ struct VulkanRenderer::Impl {
             : VK_IMAGE_ASPECT_DEPTH_BIT;
     }
     void choose_depth_format() {
+#if defined(__ANDROID__)
+        // Mobile GPUs (Mali / Adreno) share unified memory bandwidth and have
+        // small on-chip tile SRAM caches. The PSP hardware depth buffer is
+        // 16-bit UNORM (0..65535). D16 takes half the memory and bandwidth
+        // of 32-bit float and stays inside on-chip tile memory.
+        const VkFormat candidates[] = {VK_FORMAT_D16_UNORM, VK_FORMAT_D24_UNORM_S8_UINT,
+            VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT};
+#else
         const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_X8_D24_UNORM_PACK32,
             VK_FORMAT_D16_UNORM, VK_FORMAT_D32_SFLOAT_S8_UINT};
+#endif
         for (const VkFormat format : candidates) {
             VkFormatProperties properties{};
             vkGetPhysicalDeviceFormatProperties(physical_device, format, &properties);
             if ((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0u) {
                 depth_format = format;
-                if (format != VK_FORMAT_D32_SFLOAT)
-                    std::cout << "[render] no 32-bit float depth buffer; using format " << static_cast<int>(format)
-                              << "\n";
+                std::cout << "[render] chosen depth format " << static_cast<int>(format) << "\n";
                 return;
             }
         }
@@ -1991,7 +1998,7 @@ struct VulkanRenderer::Impl {
     void destroy_interpolation_targets();
     void check_replay();
     std::vector<std::uint32_t> read_image(VkImage image);
-    bool create_target(Target &target, std::string &error);
+    bool create_target(Target &target, std::string &error, bool need_depth = true);
     void initialize_layouts(VkCommandBuffer commands, Target &target);
     void submit_frame();
 
@@ -2922,8 +2929,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                 impl.discard_passes[variant] = VK_NULL_HANDLE;
         }
         std::array<VkAttachmentDescription, 2> replay = attachments;
-        replay[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        replay[1].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        replay[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        replay[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         replay[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         VkRenderPassCreateInfo replay_info = render_pass_info;
         replay_info.pAttachments = replay.data();
@@ -4132,11 +4139,12 @@ VulkanRenderer::Impl::Target *VulkanRenderer::Impl::target_for(std::uint32_t add
     return &targets.emplace(address, target).first->second;
 }
 
-bool VulkanRenderer::Impl::create_target(Target &target, std::string &error) {
+bool VulkanRenderer::Impl::create_target(Target &target, std::string &error, bool need_depth) {
     if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             target.color, target.color_memory, target.color_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return false;
+    if (!need_depth) return true;
     if (!create_image(target_extent.width, target_extent.height, depth_format,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, target.depth, target.depth_memory, target.depth_view,
             depth_aspect(), error))
@@ -4157,8 +4165,10 @@ bool VulkanRenderer::Impl::create_target(Target &target, std::string &error) {
 void VulkanRenderer::Impl::initialize_layouts(VkCommandBuffer commands, Target &target) {
     if (target.initialized) return;
     transition(commands, target.color, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    transition(commands, target.depth, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        depth_aspect());
+    if (target.depth != VK_NULL_HANDLE) {
+        transition(commands, target.depth, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            depth_aspect());
+    }
     target.initialized = true;
 }
 
@@ -6527,6 +6537,13 @@ VkExtent2D VulkanRenderer::Impl::wanted_target_extent() const {
         }
         return {kPspWidth * scale, kPspHeight * scale};
     }
+#if defined(__ANDROID__)
+    // On phones with ultra-wide screens (e.g. 20:9), requested multipliers
+    // (x2, x4, x6) use the standard 16:9 PSP pixel counts (matching PPSSPP),
+    // while the 3D projection renders widescreen using the screen aspect.
+    // This prevents bloating x4 to 2436x1088 and x6 to 3654x1632 (~6M pixels).
+    if (requested_scale != 0u) return {kPspWidth * requested_scale, kPspHeight * requested_scale};
+#endif
     // Fill: the window's shape, 272 lines per step or the window's own lines.
     const double shape = std::clamp(window_width / std::max(window_height, 1.0), 0.25, 8.0);
     double lines = requested_scale != 0u
@@ -6541,8 +6558,12 @@ VkExtent2D VulkanRenderer::Impl::wanted_target_extent() const {
 
 bool VulkanRenderer::Impl::interface_fit(float &fit_x, float &fit_y) const {
     if (aspect != settings::Aspect::Fill) return false;
-    const float x = static_cast<float>(target_extent.width) / static_cast<float>(kPspWidth);
-    const float y = static_cast<float>(target_extent.height) / static_cast<float>(kPspHeight);
+    const float display_w = picture_rect.extent.width != 0u ? static_cast<float>(picture_rect.extent.width)
+                                                           : static_cast<float>(target_extent.width);
+    const float display_h = picture_rect.extent.height != 0u ? static_cast<float>(picture_rect.extent.height)
+                                                            : static_cast<float>(target_extent.height);
+    const float x = display_w / static_cast<float>(kPspWidth);
+    const float y = display_h / static_cast<float>(kPspHeight);
     const float square = std::min(x, y);
     fit_x = square / x;
     fit_y = square / y;
@@ -6678,7 +6699,11 @@ void VulkanRenderer::set_aspect(settings::Aspect aspect) {
 }
 
 float VulkanRenderer::game_aspect() const noexcept {
-    if (!impl_ || impl_->aspect != settings::Aspect::Fill || impl_->target_extent.height == 0u)
+    if (!impl_ || impl_->aspect != settings::Aspect::Fill)
+        return static_cast<float>(kPspWidth) / static_cast<float>(kPspHeight);
+    if (impl_->picture_rect.extent.height != 0u)
+        return static_cast<float>(impl_->picture_rect.extent.width) / static_cast<float>(impl_->picture_rect.extent.height);
+    if (impl_->target_extent.height == 0u)
         return static_cast<float>(kPspWidth) / static_cast<float>(kPspHeight);
     return static_cast<float>(impl_->target_extent.width) / static_cast<float>(impl_->target_extent.height);
 }
@@ -8291,7 +8316,7 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     // The picture, before the game draws anything else into its target.
     std::string error;
     Target &picture = pictures[newer_picture ^ 1u];
-    if (picture.color == VK_NULL_HANDLE && !create_target(picture, error)) {
+    if (picture.color == VK_NULL_HANDLE && !create_target(picture, error, false)) {
         std::cout << "[render] frame interpolation has no room for its pictures: " << error << "\n";
         destroy_target(picture);
         newer_picture_valid = older_picture_valid = false;
@@ -8546,22 +8571,30 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     const FrameRecord &newer = newer_frame;
     Target &target = blend_targets[slot];
     initialize_layouts(commands, target);
+    VkClearValue clear_values[2]{};
+    clear_values[0].color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+    clear_values[1].depthStencil = {0.0f, 0u};
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     pass.renderPass = replay_pass != VK_NULL_HANDLE ? replay_pass : render_pass;
     pass.framebuffer = target.framebuffer;
     pass.renderArea = {{0, 0}, target_extent};
+    if (replay_pass != VK_NULL_HANDLE) {
+        pass.clearValueCount = 2u;
+        pass.pClearValues = clear_values;
+    }
     vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
     perf::count_render_pass();
-    // The game clears its framebuffer itself; start from a known state for
-    // any part it does not.
-    std::array<VkClearAttachment, 2> clears{};
-    clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    clears[0].colorAttachment = 0u;
-    clears[0].clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-    clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    clears[1].clearValue.depthStencil = {0.0f, 0u};
-    const VkClearRect whole{{{0, 0}, target_extent}, 0u, 1u};
-    vkCmdClearAttachments(commands, static_cast<std::uint32_t>(clears.size()), clears.data(), 1u, &whole);
+    if (replay_pass == VK_NULL_HANDLE) {
+        // Fallback for hardware without replay_pass: clear attachments explicitly.
+        std::array<VkClearAttachment, 2> clears{};
+        clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clears[0].colorAttachment = 0u;
+        clears[0].clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        clears[1].clearValue.depthStencil = {0.0f, 0u};
+        const VkClearRect whole{{{0, 0}, target_extent}, 0u, 1u};
+        vkCmdClearAttachments(commands, static_cast<std::uint32_t>(clears.size()), clears.data(), 1u, &whole);
+    }
 
     // The slot's scratch area: blended vertices and object blocks.
     VkDeviceSize scratch_at =
